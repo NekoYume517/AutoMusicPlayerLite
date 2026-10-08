@@ -4,7 +4,7 @@
 
 ## 下载与安装
 
-在 [Releases](https://github.com/NekoYume517/AutoMusicPlayerLite/releases/latest) 下载 x64 安装包。
+在 [Releases](https://github.com/NekoYume517/AutoMusicPlayerLite/releases/latest) 下载 x64 安装包、单文件绿色版或 MSIX。安装版使用 Setup-x64.exe；绿色版使用 Portable-x64.exe，双击即用，首次运行会自动展开内置运行库。MSIX 版先按 [证书与安装说明](native/MSIX安装说明.md) 信任配套证书，再双击安装。
 支持 Windows 10 2004（19041）及以上、Windows 11。安装包包含 .NET、WinUI、Python 和 VC 运行库，无需自行安装依赖。首次启动为空曲库，使用自己的本地 JSON 或 MIDI 乐谱。
 
 ## 功能
@@ -16,14 +16,15 @@
 - 乐谱库右侧直接演奏、暂停、试听或重置；演奏控制页面调整节奏与片段。
 - 所有页面右上角均可打开置顶演奏小窗：不抢游戏焦点，独立试听、进度、上一首、暂停、下一首；独立选曲搜索面板。
 - 演奏与试听共用 0.5–3.0× 连续倍速，保留原始 BPM。
+- 演奏记录保留倍速产生的小数 BPM，兼容已有整数和浮点数记录，支持详情与 JSONL / CSV 导出。
 - F6 开始或继续、F8 暂停；失去目标窗口焦点时暂停并释放按键。
-- 设置中检查 GitHub Releases 稳定版本，可开启启动时自动检查。下载后验证 SHA-256，确认后关闭播放器并安装，保留本地曲库。
+- 设置中检查 GitHub Releases 稳定版本，可开启启动时自动检查。下载后验证 SHA-256，确认后关闭播放器更新，保留本地曲库；安装版使用安装包，绿色版替换当前 EXE，MSIX 版由 Windows 安装对应 MSIX。
 
 ## 使用与构建
 
 [使用说明](native/使用说明.md) · [构建说明](native/README.md) · [第三方许可](native/THIRD_PARTY_NOTICES.md)
 
-作者已实测。自动检查在 Windows 11 x64 完成，输入检查采用记录驱动。安装包目前未签名。
+作者已实测。自动检查在 Windows 11 x64 完成，输入检查采用记录驱动。EXE 目前未签名；MSIX 使用随包 CER 对应的自签名证书。
 程序只提供本地演奏工具，请遵守目标游戏的使用规则。
 
 ## 许可与来源

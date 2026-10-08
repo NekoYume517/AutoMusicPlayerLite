@@ -20,15 +20,35 @@
     <PublishTrimmed>false</PublishTrimmed>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.2.3</Version>
+    <Version>2.2.4</Version>
     <Description>Native WinUI 3 interface with an offline Python input engine.</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
   </ItemGroup>
-  <Target Name="PublishWinUIResources" AfterTargets="Publish">
+  <Target Name="PublishWinUIResources" AfterTargets="Publish" Condition="'$(PublishSingleFile)' != 'true'">
     <ItemGroup><NativeXamlResource Include="$(TargetDir)*.xbf;$(TargetDir)$(AssemblyName).pri" /></ItemGroup>
     <Copy SourceFiles="@(NativeXamlResource)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <PropertyGroup Condition="'$(PortablePayloadDir)' != ''">
+    <PublishSingleFile>true</PublishSingleFile>
+    <ProjectPriFileName>resources.pri</ProjectPriFileName>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+  <Target Name="BundlePortablePayload" BeforeTargets="_ComputeFilesToBundle" Condition="'$(PortablePayloadDir)' != ''">
+    <Error Condition="!Exists('$(PortablePayloadDir)portable.mode')" Text="A prepared portable payload with portable.mode is required." />
+    <ItemGroup>
+      <_PortableExtras Include="$(PortablePayloadDir)**/*" Exclude="$(PortablePayloadDir)AutoMusicPlayerLite.exe;$(PortablePayloadDir)AutoMusicPlayerLite.dll;$(PortablePayloadDir)AutoMusicPlayerLite.deps.json;$(PortablePayloadDir)AutoMusicPlayerLite.runtimeconfig.json;$(PortablePayloadDir)AutoMusicPlayerLite.pdb">
+        <RelativePath>%(_PortableExtras.RecursiveDir)%(_PortableExtras.Filename)%(_PortableExtras.Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>false</ExcludeFromSingleFile>
+      </_PortableExtras>
+      <_PortableExtras Update="@(_PortableExtras)"><RelativePath>%(_PortableExtras.RecursiveDir)%(_PortableExtras.Filename)%(_PortableExtras.Extension)</RelativePath></_PortableExtras>
+      <ResolvedFileToPublish Remove="@(_PortableExtras)" MatchOnMetadata="RelativePath" MatchOnMetadataOptions="PathLike" />
+      <ResolvedFileToPublish Include="@(_PortableExtras)" />
+    </ItemGroup>
   </Target>
 </Project>

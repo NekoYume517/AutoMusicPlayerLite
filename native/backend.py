@@ -49,7 +49,7 @@ from core.midi_io import write_midi
 from core.window_monitor import _get_fg_hwnd, _get_window_title
 from core.windows_reliability import inspect_target_elevation
 
-VERSION = "2.2.3"
+VERSION = "2.2.4"
 _write_lock = threading.RLock()
 
 def send(value):

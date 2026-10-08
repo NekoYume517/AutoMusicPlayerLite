@@ -28,10 +28,10 @@ public sealed partial class MainWindow
         UpdateStatusText.Text = "正在检查稳定版本…";
         try
         {
-            availableUpdate = await ReleaseUpdate.Check(updateCancellation.Token);
+            availableUpdate = await ReleaseUpdate.Check(updateCancellation.Token, DistributionMode.IsPortable, DistributionMode.IsMsix);
             if (closing) return;
             await File.WriteAllTextAsync(stamp, DateTime.UtcNow.ToString("O"));
-            UpdateStatusText.Text = availableUpdate is null ? "已是最新版本 · 2.2.0" : $"发现新版本 {availableUpdate.Version} · 当前 2.2.0";
+            UpdateStatusText.Text = availableUpdate is null ? $"已是最新版本 · {ReleaseUpdate.Current}" : $"发现新版本 {availableUpdate.Version} · 当前 {ReleaseUpdate.Current}";
             UpdateNotesText.Text = availableUpdate?.Notes ?? "";
             InstallUpdateButton.IsEnabled = availableUpdate is not null;
         }
@@ -44,18 +44,21 @@ public sealed partial class MainWindow
         if (availableUpdate is null || updateBusy) return;
         if (playbackState is "playing" or "preview" or "countdown" or "practice") throw new InvalidOperationException("请先暂停演奏或试听，再安装更新。");
         var release = availableUpdate;
-        var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = $"安装 {release.Version}", Content = "将下载并校验新版安装包，然后关闭播放器并启动安装。曲库、分组和收藏会保留。", PrimaryButtonText = "下载并安装", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
+        bool portable = release.IsPortable;
+        bool msix = release.IsMsix;
+        var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = $"更新到 {release.Version}", Content = portable ? "将下载并校验新版绿色 EXE，关闭播放器后替换当前文件并重新打开。保留当前文件名、曲库、分组、收藏和设置；新窗口启动失败时恢复原文件。" : msix ? "将下载并校验新版 MSIX，关闭播放器后由 Windows 安装更新。曲库、分组、收藏和设置会保留。" : "将下载并校验新版安装包，然后关闭播放器并启动安装。曲库、分组和收藏会保留。", PrimaryButtonText = portable ? "下载并更新" : "下载并安装", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
         if (await ShowDialog(dialog) != ContentDialogResult.Primary) return;
         updateBusy = true; CheckUpdateButton.IsEnabled = InstallUpdateButton.IsEnabled = false;
         try
         {
             string installer = await ReleaseUpdate.Download(release, Path.Combine(backend.DataDirectory, "updates"), new Progress<double>(p => UpdateStatusText.Text = $"正在下载 {p:P0}"), updateCancellation.Token);
             if (closing) return;
-            UpdateStatusText.Text = "校验通过，启动安装…";
+            var start = portable ? PortableUpdate.StartInfo(installer, DistributionMode.Executable, backend.DataDirectory, Environment.ProcessId) : new ProcessStartInfo(installer) { UseShellExecute = true };
+            UpdateStatusText.Text = portable ? "校验通过，更新绿色版…" : "校验通过，启动安装…";
             await backend.Call("stop");
-            var start = new ProcessStartInfo(installer) { UseShellExecute = true };
-            start.Arguments = "/SP- /SILENT /NORESTART /DIR=\"" + AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar) + "\"";
-            Process.Start(start); Close();
+            if (!portable && !msix) start.Arguments = "/SP- /SILENT /NORESTART /DIR=\"" + AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar) + "\"";
+            var started = Process.Start(start);
+            if (!msix && started is null) throw new IOException("系统未能启动更新程序，当前窗口已保留。"); Close();
         }
         finally { updateBusy = false; if (!closing) { CheckUpdateButton.IsEnabled = true; InstallUpdateButton.IsEnabled = true; } }
     });

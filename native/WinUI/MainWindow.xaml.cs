@@ -42,6 +42,7 @@ public sealed partial class MainWindow : Window
         backend = new BackendClient(((App)Application.Current).DataDirectory);
         settingsFile = Path.Combine(backend.DataDirectory, "ui-settings.json");
         InitializeComponent();
+        InstallUpdateButton.Content = DistributionMode.IsPortable ? "下载并更新" : "下载并安装";
         LoadSettings();
         AutoUpdateToggle.IsOn = automaticUpdates;
         AdminDefaultToggle.IsOn = preferAdministrator;
@@ -75,6 +76,7 @@ public sealed partial class MainWindow : Window
         int index = Array.IndexOf(args, flag);
         return index >= 0 && index + 1 < args.Length && !args[index + 1].StartsWith("--") ? args[index + 1] : null;
     }
+    private static bool argsPortableTestFail() => Environment.GetCommandLineArgs().Contains("--test-driver") && Environment.GetCommandLineArgs().Contains("--portable-update-test-fail-ready");
     private static bool argsRestartProbe() => Environment.GetCommandLineArgs().Contains("--restart-probe") && Environment.GetCommandLineArgs().Contains("--test-driver");
     private void LoadSettings()
     {
@@ -122,6 +124,9 @@ public sealed partial class MainWindow : Window
             await RefreshLibrary();
             StatusText.Text = "本地引擎已就绪";
             if (closing) return;
+            if (argsPortableTestFail()) { Close(); return; }
+            PortableUpdate.ReportReady(Environment.GetCommandLineArgs(), backend.DataDirectory);
+            if (Environment.GetCommandLineArgs().Contains("--portable-ready-exit") && Environment.GetCommandLineArgs().Contains("--test-driver")) { await Task.Delay(800); Close(); return; }
             string? restartToken = Arg(Environment.GetCommandLineArgs(), "--restart-token");
             if (restartToken is not null)
             {
@@ -582,6 +587,7 @@ public sealed partial class MainWindow : Window
         if (SeekSlider.Value != 2) throw new Exception("progress event binding failed");
         checks.Add("RPC status and progress binding");
         Nav.SelectedItem = Nav.MenuItems[2]; await RefreshLogs(); checks.Add("logs navigation");
+        await CheckDecimalLogs(checks);
         Nav.SelectedItem = Nav.SettingsItem; ThemeBox.SelectedIndex = 2;
         if (!AutoUpdateToggle.IsOn || !CheckUpdateButton.IsEnabled || InstallUpdateButton.IsEnabled) throw new Exception("Update settings controls failed");
         AutoUpdateToggle.IsOn = false; SaveSettings();
@@ -655,7 +661,7 @@ public sealed partial class MainWindow : Window
         checks.Add("search hook suppresses typed key pairs, ignores injected playback and preserves foreground");
         mini.Close(); await backend.Call("delete", new { id = otherId });
         await backend.Call("delete", new { id });
-        File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = "2.2.3" }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = typeof(MainWindow).Assembly.GetName().Version!.ToString(3), portable = DistributionMode.IsPortable, msix = DistributionMode.IsMsix, executable = Environment.ProcessPath, runtimeDirectory = AppContext.BaseDirectory }, new JsonSerializerOptions { WriteIndented = true }));
         Close();
     }
 }

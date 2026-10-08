@@ -13,6 +13,8 @@ public partial class App : Application
             ? Path.Combine(Path.GetTempPath(), "AutoMusicPlayerLite-test-" + Guid.NewGuid().ToString("N"))
             : BackendClient.DefaultDataDirectory));
         Directory.CreateDirectory(DataDirectory);
+        int? portableUpdate = PortableUpdate.TryRun(args, DataDirectory);
+        if (portableUpdate is int exitCode) Environment.Exit(exitCode);
         Instance = new InstanceLease(DataDirectory);
         if (!Instance.Owned) { Environment.Exit(0); return; }
         InitializeComponent();

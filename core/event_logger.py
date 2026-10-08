@@ -132,7 +132,7 @@ class EventLogger:
     def is_active(self) -> bool:
         return self._fh is not None
 
-    def start_session(self, score_name: str, bpm: int, note_count: int) -> str:
+    def start_session(self, score_name: str, bpm: float, note_count: int) -> str:
         """开始新的演奏会话，返回 session_id"""
         with self._lock:
             if self._fh is not None:

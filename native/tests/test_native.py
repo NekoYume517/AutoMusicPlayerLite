@@ -83,6 +83,19 @@ class ServiceTests(unittest.TestCase):
         sid = self.create()
         with self.assertRaises(ValueError): self.service.prepare(self.args(sid, "default"))
         self.assertFalse((Path(self.tmp.name) / "profiles" / "default.yaml").exists())
+    def test_fractional_effective_bpm_log_roundtrips_without_rounding(self):
+        sid = self.service.request("save", {"name": "小数BPM", "bpm": 150, "text": "1___ 0___"})["id"]
+        self.service.request("set_speed", {"speed": .75})
+        self.service.start({"score_id": sid, "profile_id": "delta_force_harmonica", "bpm": 150, "humanize": False})
+        self.assertTrue(eventually(lambda: self.service.state == "completed"))
+        logs = self.service.request("logs", {})
+        self.assertEqual(logs[0]["bpm"], 112.5)
+        original = (Path(self.tmp.name)/"play_logs"/logs[0]["file"]).read_bytes()
+        output = Path(self.tmp.name)/"decimal.jsonl"
+        self.service.request("log_export", {"file": logs[0]["file"], "path": str(output)})
+        self.assertEqual(output.read_bytes(), original)
+        self.assertEqual(json.loads(output.read_text(encoding="utf-8").splitlines()[0])["bpm"], 112.5)
+        self.balanced()
     def test_delta_note_path_and_logs(self):
         sid = self.create()
         self.service.start(self.args(sid))

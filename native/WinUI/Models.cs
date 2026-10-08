@@ -28,8 +28,8 @@ public sealed class LogItem
     [JsonPropertyName("file")] public string File { get; set; } = "";
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("time")] public string Time { get; set; } = "";
-    [JsonPropertyName("bpm")] public int Bpm { get; set; }
-    public string Display => $"{Name}\n{Time.Replace('T', ' ')} · {Bpm} BPM";
+    [JsonPropertyName("bpm")] public double Bpm { get; set; }
+    public string Display => $"{Name}\n{Time.Replace('T', ' ')} · {Bpm:0.##} BPM";
 }
 
 public sealed class LibraryGroup
