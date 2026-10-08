@@ -11,10 +11,11 @@ public sealed class BackendClient : IAsyncDisposable
     private int sequence;
     private bool closing;
     public event Action<string, JsonElement>? Event;
+    public static string DefaultDataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoMusicPlayerLitePublic");
     public string DataDirectory { get; }
     public BackendClient(string? dataDirectory = null)
     {
-        DataDirectory = dataDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoMusicPlayerLitePublic");
+        DataDirectory = dataDirectory ?? DefaultDataDirectory;
         Directory.CreateDirectory(DataDirectory);
     }
     public void Start(bool testMode = false)

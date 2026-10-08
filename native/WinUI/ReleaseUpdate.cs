@@ -10,11 +10,11 @@ public static class ReleaseUpdate
     public const string Repository = "NekoYume517/AutoMusicPlayerLite";
     public const string ReleasesPage = "https://github.com/" + Repository + "/releases";
     public const long MaxInstallerBytes = 300L * 1024 * 1024;
-    public static readonly Version Current = new(2, 1, 0);
+    public static readonly Version Current = new(2, 2, 0);
     private static readonly HttpClient client = new() { Timeout = TimeSpan.FromMinutes(8) };
     static ReleaseUpdate()
     {
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("AutoMusicPlayerLite/2.1.0");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("AutoMusicPlayerLite/2.2.0");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
     }
     public static ReleaseVersion? Parse(JsonElement release, Version current)

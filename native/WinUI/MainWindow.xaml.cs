@@ -38,11 +38,13 @@ public sealed partial class MainWindow : Window
         var args = Environment.GetCommandLineArgs();
         selfTest = args.Contains("--self-test");
         selfTestFile = Arg(args, "--self-test");
-        backend = new BackendClient(Arg(args, "--data-dir") ?? (selfTest ? Path.Combine(Path.GetTempPath(), "AutoMusicPlayerLite-test-" + Guid.NewGuid().ToString("N")) : null));
+        backend = new BackendClient(((App)Application.Current).DataDirectory);
         settingsFile = Path.Combine(backend.DataDirectory, "ui-settings.json");
         InitializeComponent();
         LoadSettings();
         AutoUpdateToggle.IsOn = automaticUpdates;
+        AdminDefaultToggle.IsOn = preferAdministrator;
+        AdminReminderToggle.IsOn = !suppressAdminReminder;
         SortBox.SelectedIndex = savedSort;
         Title = "自动演奏器 Lite";
         ExtendsContentIntoTitleBar = true;
@@ -72,6 +74,7 @@ public sealed partial class MainWindow : Window
         int index = Array.IndexOf(args, flag);
         return index >= 0 && index + 1 < args.Length && !args[index + 1].StartsWith("--") ? args[index + 1] : null;
     }
+    private static bool argsRestartProbe() => Environment.GetCommandLineArgs().Contains("--restart-probe") && Environment.GetCommandLineArgs().Contains("--test-driver");
     private void LoadSettings()
     {
         try
@@ -80,13 +83,15 @@ public sealed partial class MainWindow : Window
             savedTheme = doc.RootElement.GetProperty("theme").GetInt32();
             acceptedRisk = doc.RootElement.GetProperty("acceptedRisk").GetBoolean();
             if (doc.RootElement.TryGetProperty("autoUpdate", out var update)) automaticUpdates = update.GetBoolean();
+            if (doc.RootElement.TryGetProperty("preferAdministrator", out var admin)) preferAdministrator = admin.GetBoolean();
+            if (doc.RootElement.TryGetProperty("suppressAdminReminder", out var reminder)) suppressAdminReminder = reminder.GetBoolean();
             if (doc.RootElement.TryGetProperty("librarySort", out var sort)) savedSort = Math.Clamp(sort.GetInt32(), 0, 5);
         }
         catch (Exception) { }
     }
     private void SaveSettings()
     {
-        File.WriteAllText(settingsFile, JsonSerializer.Serialize(new { theme = savedTheme, acceptedRisk, librarySort = savedSort, autoUpdate = automaticUpdates }));
+        File.WriteAllText(settingsFile, JsonSerializer.Serialize(new { theme = savedTheme, acceptedRisk, librarySort = savedSort, preferAdministrator, suppressAdminReminder, autoUpdate = automaticUpdates }));
     }
     private async void RootLoaded(object sender, RoutedEventArgs e)
     {
@@ -100,9 +105,11 @@ public sealed partial class MainWindow : Window
             ProfileBox.ItemsSource = profiles;
             var active = hello.GetProperty("active_profile").GetString();
             ProfileBox.SelectedItem = profiles.FirstOrDefault(p => p.Id == active) ?? profiles[0];
-            PermissionText.Text = hello.GetProperty("is_admin").GetBoolean() ? "当前以管理员身份运行。" : "当前以普通用户权限运行。";
+            isAdministrator = ElevationHandoff.IsAdministrator();
+            PermissionText.Text = isAdministrator ? "当前以管理员身份运行。" : "当前以普通用户权限运行。";
             DataPathText.Text = backend.DataDirectory;
-            if (!acceptedRisk && !selfTest)
+            bool restartProbe = argsRestartProbe();
+            if (!acceptedRisk && !selfTest && !restartProbe)
             {
                 var risk = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "首次使用提示", PrimaryButtonText = "我已知晓，继续使用", CloseButtonText = "退出", DefaultButton = ContentDialogButton.Close,
                     Content = new TextBlock { Text = "本工具免费开源，仅供学习交流与个人娱乐。自动键鼠输入可能影响游戏账号，请阅读并遵守游戏规则，使用产生的风险由自己承担。\n\n先使用钢琴试听确认旋律；正式演奏时，请在 3 秒倒计时内切到游戏窗口。F8 可随时暂停并释放按键。", TextWrapping = TextWrapping.Wrap, MaxWidth = 440 } };
@@ -113,11 +120,34 @@ public sealed partial class MainWindow : Window
             ready = true;
             await RefreshLibrary();
             StatusText.Text = "本地引擎已就绪";
+            if (closing) return;
+            string? restartToken = Arg(Environment.GetCommandLineArgs(), "--restart-token");
+            if (restartToken is not null)
+            {
+                if (!isAdministrator && !restartProbe) throw new InvalidOperationException("新窗口没有获得管理员权限。");
+                if (isAdministrator && Environment.GetCommandLineArgs().Contains("--set-default-admin"))
+                { AdminDefaultToggle.IsOn = true; SaveSettings(); }
+                ElevationHandoff.Report(backend.DataDirectory, restartToken, "ready");
+                if (restartProbe) { await Task.Delay(800); Close(); }
+                else if (automaticUpdates) _ = CheckUpdates(false);
+                return;
+            }
             if (selfTest) await SelfTest();
-            else if (automaticUpdates) _ = CheckUpdates(false);
+            else
+            {
+                await CheckAdministratorStartup();
+                if (!closing && automaticUpdates) _ = CheckUpdates(false);
+            }
         }
         catch (Exception exc)
         {
+            string? failedToken = Arg(Environment.GetCommandLineArgs(), "--restart-token");
+            if (failedToken is not null && !closing)
+            {
+                ((App)Application.Current).Instance.Release();
+                ElevationHandoff.Report(backend.DataDirectory, failedToken, "failed", exc.Message);
+                Close(); return;
+            }
             if (selfTest)
             {
                 File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = false, error = exc.ToString() }, new JsonSerializerOptions { WriteIndented = true }));
@@ -339,7 +369,7 @@ public sealed partial class MainWindow : Window
     }
     private async void ImportClick(object sender, RoutedEventArgs e) => await Run(async () =>
     {
-        var files = await OpenPicker(".json", ".mid", ".midi").PickMultipleFilesAsync();
+        var files = await OpenPicker(".json", ".mid", ".midi", ".zip").PickMultipleFilesAsync();
         if (files.Count == 0) return;
         var choice = await ChooseGroups("导入到分组"); if (choice is null) return;
         var result = await backend.Call("import", new { paths = files.Select(f => f.Path).ToArray(), group_ids = choice.Groups, favorite = choice.Favorite }, 300);
@@ -459,12 +489,6 @@ public sealed partial class MainWindow : Window
         var path = Path.Combine(AppContext.BaseDirectory, "THIRD_PARTY_NOTICES.md");
         await ShowDialog(new ContentDialog { XamlRoot = Root.XamlRoot, Title = "开源许可与第三方声明", Content = new ScrollViewer { MaxHeight = 420, Content = new TextBlock { Text = await File.ReadAllTextAsync(path), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, MaxWidth = 540 } }, CloseButtonText = "关闭" });
     });
-    private async void AdminClick(object sender, RoutedEventArgs e) => await Run(async () =>
-    {
-        await backend.Call("stop");
-        var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true, Verb = "runas", Arguments = $"--wait-for-exit {Environment.ProcessId}" };
-        Process.Start(start); Close();
-    });
     private async void MiniClick(object sender, RoutedEventArgs e) => await Run(ShowMini);
     private async Task ShowMini()
     {
@@ -495,6 +519,7 @@ public sealed partial class MainWindow : Window
             await PickerSelfTest.Check(AppWindow.Id);
             checks.Add("administrator-compatible open/save/folder pickers render and cancel cleanly");
         }
+        await CheckAdministratorControls(checks);
         // Uses a recording driver and isolated data directory; creates no real keyboard/mouse input.
         if (LibraryPage.ActualWidth < 600 || Root.ActualHeight < 500) throw new Exception("WinUI layout did not render");
         checks.Add("native WinUI window rendered");
@@ -534,6 +559,7 @@ public sealed partial class MainWindow : Window
         var export = Path.Combine(backend.DataDirectory, "self-test-export.json");
         await backend.Call("export", new { id, path = export });
         if (!File.Exists(export)) throw new Exception("export failed"); checks.Add("JSON export");
+        await CheckArchives(checks, id);
         var midiExport = Path.Combine(backend.DataDirectory, "self-test-export.mid");
         var beforeMidiIds = songs.Select(s => s.Id).ToHashSet();
         await backend.Call("export", new { id, path = midiExport });
@@ -587,7 +613,7 @@ public sealed partial class MainWindow : Window
         checks.Add("search hook suppresses typed key pairs, ignores injected playback and preserves foreground");
         mini.Close(); await backend.Call("delete", new { id = otherId });
         await backend.Call("delete", new { id });
-        File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = "2.1.0" }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = "2.2.0" }, new JsonSerializerOptions { WriteIndented = true }));
         Close();
     }
 }

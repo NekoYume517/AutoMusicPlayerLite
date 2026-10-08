@@ -111,7 +111,7 @@ public sealed partial class MainWindow
         BatchToolbar.Visibility = multiSelect ? Visibility.Visible : Visibility.Collapsed;
         int count = SongsList.SelectedItems.Count;
         BatchCount.Text = $"已选 {count} 首";
-        BatchGroupButton.IsEnabled = BatchFavoriteButton.IsEnabled = BatchUnfavoriteButton.IsEnabled = count > 0;
+        BatchExportButton.IsEnabled = BatchGroupButton.IsEnabled = BatchFavoriteButton.IsEnabled = BatchUnfavoriteButton.IsEnabled = count > 0;
         BatchRemoveButton.IsEnabled = count > 0 && currentGroup > 0;
         GoButton.IsEnabled = EditButton.IsEnabled = ExportButton.IsEnabled = DeleteButton.IsEnabled = FavoriteButton.IsEnabled = SongGroupsButton.IsEnabled = !multiSelect && selected is not null;
         FavoriteButton.Content = selected?.Favorite == true ? "取消收藏" : "收藏曲目";

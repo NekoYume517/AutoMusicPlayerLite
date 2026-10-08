@@ -1,6 +1,6 @@
 # Native WinUI 3 release — third-party notices
 
-Auto Music Player Lite 2.1.0 uses the original project's MIT-licensed core.
+Auto Music Player Lite 2.2.0 uses the original project's MIT-licensed core.
 Native interface and modifications: Copyright (c) 2026 NekoYume517.
 The original core copyright is retained in `LICENSE`. Native source and build instructions
 are provided with this release. Library copyright and full license notices are

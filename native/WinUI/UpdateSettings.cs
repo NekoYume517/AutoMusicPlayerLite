@@ -31,7 +31,7 @@ public sealed partial class MainWindow
             availableUpdate = await ReleaseUpdate.Check(updateCancellation.Token);
             if (closing) return;
             await File.WriteAllTextAsync(stamp, DateTime.UtcNow.ToString("O"));
-            UpdateStatusText.Text = availableUpdate is null ? "已是最新版本 · 2.1.0" : $"发现新版本 {availableUpdate.Version} · 当前 2.1.0";
+            UpdateStatusText.Text = availableUpdate is null ? "已是最新版本 · 2.2.0" : $"发现新版本 {availableUpdate.Version} · 当前 2.2.0";
             UpdateNotesText.Text = availableUpdate?.Notes ?? "";
             InstallUpdateButton.IsEnabled = availableUpdate is not null;
         }

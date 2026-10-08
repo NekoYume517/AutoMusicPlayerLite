@@ -361,4 +361,7 @@ def import_many(path: str) -> list[ImportResult]:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".json":
         return import_json_many(path)
+    if ext == ".zip":
+        from core.archive_io import read_score_zip
+        return read_score_zip(path)
     return [import_any(path)]

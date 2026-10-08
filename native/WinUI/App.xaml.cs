@@ -1,37 +1,52 @@
 using Microsoft.UI.Xaml;
-using System.Diagnostics;
-using System.Security.Cryptography;
-using System.Text;
-
 namespace AutoMusicPlayer;
 public partial class App : Application
 {
     private MainWindow? window;
-    private Mutex? instanceMutex;
+    private DispatcherTimer? restartCancellation;
+    public string DataDirectory { get; }
+    public InstanceLease Instance { get; }
     public App()
     {
         var args = Environment.GetCommandLineArgs();
-        int wait = Array.IndexOf(args, "--wait-for-exit");
-        if (wait >= 0 && wait + 1 < args.Length && int.TryParse(args[wait + 1], out int pid))
-        {
-            try { Process.GetProcessById(pid).WaitForExit(15000); } catch (ArgumentException) { }
-        }
-        int data = Array.IndexOf(args, "--data-dir");
-        string key = data >= 0 && data + 1 < args.Length ? args[data + 1] : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key.ToLowerInvariant())))[..24];
-        instanceMutex = new Mutex(true, "Local\\AutoMusicPlayerLite_" + hash, out bool created);
-        if (!created) { Environment.Exit(0); return; }
+        DataDirectory = Path.GetFullPath(ReadArg(args, "--data-dir") ?? (args.Contains("--self-test")
+            ? Path.Combine(Path.GetTempPath(), "AutoMusicPlayerLite-test-" + Guid.NewGuid().ToString("N"))
+            : BackendClient.DefaultDataDirectory));
+        Directory.CreateDirectory(DataDirectory);
+        Instance = new InstanceLease(DataDirectory);
+        if (!Instance.Owned) { Environment.Exit(0); return; }
         InitializeComponent();
         UnhandledException += (_, e) =>
         {
-            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoMusicPlayerLite");
-            Directory.CreateDirectory(dir);
-            File.AppendAllText(Path.Combine(dir, "ui-errors.log"), $"{DateTimeOffset.Now:O} {e.Message}\n{e.Exception}\n");
+            File.AppendAllText(Path.Combine(DataDirectory, "ui-errors.log"), $"{DateTimeOffset.Now:O} {e.Message}\n{e.Exception}\n");
+            string? token = ReadArg(args, "--restart-token");
+            if (token is not null)
+            {
+                Instance.Release();
+                try { ElevationHandoff.Report(DataDirectory, token, "failed", e.Message); } catch (Exception) { }
+            }
         };
+    }
+    private static string? ReadArg(string[] args, string flag)
+    {
+        int i = Array.IndexOf(args, flag);
+        return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
     }
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         window = new MainWindow();
+        window.Closed += (_, _) => { restartCancellation?.Stop(); Instance.Dispose(); Exit(); };
+        string? token = ReadArg(Environment.GetCommandLineArgs(), "--restart-token");
+        if (token is not null)
+        {
+            restartCancellation = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            restartCancellation.Tick += (_, _) =>
+            {
+                if (ElevationHandoff.Read(DataDirectory, token)?.State != "cancelled") return;
+                restartCancellation.Stop(); Instance.Release(); window.Close();
+            };
+            restartCancellation.Start();
+        }
         window.Activate();
     }
 }

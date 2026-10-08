@@ -22,6 +22,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Python tests failed' }
     & dotnet run --project native/tests/UpdateTests --configuration Release
     if ($LASTEXITCODE -ne 0) { throw "Update tests failed" }
+    & dotnet run --project native\tests\ElevationTests\ElevationTests.csproj -c Release
+    if ($LASTEXITCODE -ne 0) { throw 'Elevation tests failed' }
     & $envPython -m PyInstaller native\AmpEngine.spec --noconfirm --distpath work\engine-dist --workpath work\engine-build --log-level WARN
     if ($LASTEXITCODE -ne 0) { throw 'Engine freeze failed' }
     Push-Location $PSScriptRoot

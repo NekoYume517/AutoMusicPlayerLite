@@ -10,6 +10,7 @@ import argparse
 import csv
 import gzip
 import uuid
+from zipfile import BadZipFile
 import unicodedata
 import ctypes
 import json
@@ -41,12 +42,13 @@ from core.ir import from_storage
 from core.scenario import get_scenario
 from core.score_io import export_json, import_many
 from core.score_model import require_valid
+from core.archive_io import export_zip, restore_backup
 from core.rhythm import normalize_durations
 from core.midi_io import write_midi
 from core.window_monitor import _get_fg_hwnd, _get_window_title
 from core.windows_reliability import inspect_target_elevation
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 _write_lock = threading.RLock()
 
 def send(value):
@@ -543,9 +545,9 @@ class Service:
         if method == "import":
             paths = args.get("paths", [])
             if args.get("folder"):
-                paths = sorted(str(p) for p in Path(args["folder"]).iterdir() if p.is_file() and p.suffix.lower() in (".json", ".mid", ".midi"))
+                paths = sorted(str(p) for p in Path(args["folder"]).iterdir() if p.is_file() and p.suffix.lower() in (".json", ".mid", ".midi", ".zip"))
             if not paths:
-                raise ValueError("没有找到 JSON 或 MIDI 文件")
+                raise ValueError("没有找到 JSON、MIDI 或乐谱 ZIP 文件")
             records, errors, warnings = [], [], []
             for index, path in enumerate(paths):
                 send({"event": "notice", "data": f"导入 {index + 1}/{len(paths)}：{Path(path).name}"})
@@ -555,11 +557,36 @@ class Service:
                         records.append({"name": res.name, "notes": notes, "bpm_default": res.bpm,
                                         "raw_text": res.raw_text, "source_type": "import", "source_file": path})
                         warnings.extend(res.warnings)
-                except (ValueError, OSError, EOFError) as exc:
+                except (ValueError, OSError, EOFError, BadZipFile) as exc:
                     errors.append(f"{Path(path).name}: {exc}")
             with ScoreDB(self.db_path) as db:
                 db.add_scores(records, group_ids=args.get("group_ids", [1]), favorite=args.get("favorite", False))
             return {"count": len(records), "errors": errors, "warnings": warnings[:50]}
+        if method in ("export_zip", "backup_zip"):
+            with self.lock:
+                return export_zip(self.db_path, args["path"], args.get("ids") if method == "export_zip" else None,
+                                  data_dir=self.data, backup=method == "backup_zip")
+        if method == "restore_backup":
+            if args.get("confirmed") is not True:
+                raise ValueError("请先确认恢复备份")
+            with self.lock:
+                if self.state in ("playing", "countdown", "practice", "preview"):
+                    raise ValueError("请先停止演奏或试听，再恢复备份")
+                self.stop()
+                result = restore_backup(self.db_path, self.data, args["path"])
+                self.cfg = yaml.safe_load((self.data / "config.yaml").read_text(encoding="utf-8"))
+                self.cfg.setdefault("app", {})["active_profile"] = "delta_force_harmonica"
+                self.profiles = [p for p in load_profiles(str(self.data / "profiles"), fallback_keymap=self.cfg["keymap"])
+                                 if p.id == "delta_force_harmonica"]
+                pc = self.cfg.get("player", {})
+                self.speed = float(pc.get("playback_speed", 1))
+                self.driver.settle_ms = float(pc.get("modifier_settle_ms", 30))
+                self.driver.release_settle_ms = float(pc.get("modifier_release_ms", 20))
+                self.selected = None; self.notes = []; self.position = 0; self.options = {}
+                self.state = "idle"; self.message = "备份已恢复"
+
+                self.notify()
+                return result
         if method == "export":
             with ScoreDB(self.db_path) as db:
                 score = db.get_score(int(args["id"]))
