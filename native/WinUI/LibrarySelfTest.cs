@@ -46,6 +46,7 @@ public sealed partial class MainWindow
 
     private async Task CheckLibraryManagement(List<string> checks, int originalId)
     {
+        await CheckOperationReports(checks);
         int group = (await backend.Call("group_save", new { name = "自检分组" })).GetProperty("id").GetInt32();
         int otherGroup = (await backend.Call("group_save", new { name = "自检第二组" })).GetProperty("id").GetInt32();
         await backend.Call("library_batch", new { ids = new[] { originalId }, group_ids = new[] { group, otherGroup }, favorite = true });

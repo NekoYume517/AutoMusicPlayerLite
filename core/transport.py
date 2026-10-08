@@ -14,7 +14,7 @@ from core.score_model import MAX_DUR_BEATS, require_valid
 
 _BLACK_TO_NATURAL = {1: 0, 3: 2, 6: 5, 8: 7, 10: 9}
 _NATURAL_PCS = {0, 2, 4, 5, 7, 9, 11}
-_MIDI_MIN, _MIDI_MAX = 48, 83
+_MIDI_MIN, _MIDI_MAX = 48, 85
 MIN_GAME_NOTE_MS = 60.0
 
 
@@ -56,7 +56,7 @@ def _pitch_to_storage(pitch: int) -> tuple[str, int]:
         semitone = 1
     note_id = midi_to_note_id(natural_pitch)
     if note_id is None:
-        raise ValueError(f"MIDI 音高 {pitch} 无法映射到 C3-B5")
+        raise ValueError(f"MIDI 音高 {pitch} 无法映射到 C3-C#6")
     return note_id, semitone
 
 

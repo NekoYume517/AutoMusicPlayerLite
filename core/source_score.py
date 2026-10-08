@@ -21,7 +21,7 @@ from core.score_model import MAX_BPM, MAX_DUR_BEATS, MIN_BPM, require_valid
 # ``low_1`` 是 C3(48)，``high_7`` 是 B5(83)。黑键以其前一个自然音加
 # ``semitone: 1`` 表示，正好匹配现有 Score/JSON/MIDI 导出约定。
 MIDI_MIN = 48
-MIDI_MAX = 83
+MIDI_MAX = 85
 MAX_SOURCE_PITCH = 127
 MAX_SOURCE_TRACKS = 256
 MAX_SOURCE_NOTES = 100_000
@@ -426,7 +426,7 @@ def _map_pitch(pitch: int, *, transpose: int, fold_octaves: bool) -> tuple[str, 
         while mapped > MIDI_MAX:
             mapped -= 12
         folded = True
-    octave = ("low", "mid", "high")[(mapped - MIDI_MIN) // 12]
+    octave = ("low", "mid", "high", "top")[(mapped - MIDI_MIN) // 12]
     pc = mapped % 12
     if pc in _NATURAL_NUM:
         return f"{octave}_{_NATURAL_NUM[pc]}", 0, folded
@@ -541,11 +541,11 @@ def adapt_source_song(song: SourceSong, options: AdaptOptions = AdaptOptions()) 
 
     _add_degradation(
         degradations, warnings, "octave_folded", len(folded_sources),
-        f"已将 {len(folded_sources)} 个超出 C3-B5 范围的音按八度折回。",
+        f"已将 {len(folded_sources)} 个超出 C3-C#6 范围的音按八度折回。",
     )
     _add_degradation(
         degradations, warnings, "unsupported_note", len(unsupported_sources),
-        f"有 {len(unsupported_sources)} 个超出 C3-B5 范围的音已以等时值休止保留。",
+        f"有 {len(unsupported_sources)} 个超出 C3-C#6 范围的音已以等时值休止保留。",
     )
     _add_degradation(
         degradations, warnings, "mixed_semitone_chord", mixed_chords,

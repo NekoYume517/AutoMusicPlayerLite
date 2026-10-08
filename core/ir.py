@@ -12,7 +12,7 @@
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
-OCTAVE_TO_NAME = {-1: "low", 0: "mid", 1: "high"}
+OCTAVE_TO_NAME = {-1: "low", 0: "mid", 1: "high", 2: "top"}
 NAME_TO_OCTAVE = {v: k for k, v in OCTAVE_TO_NAME.items()}
 
 MIN_PITCH, MAX_PITCH = 1, 7
@@ -41,6 +41,8 @@ class IRNote:
             raise ValueError(f"pitch 必须在 {MIN_PITCH}-{MAX_PITCH}: {self.pitch}")
         if self.octave not in OCTAVE_TO_NAME:
             raise ValueError(f"octave 必须是 -1/0/1: {self.octave}")
+        if self.octave == 2 and self.pitch != 1:
+            raise ValueError("双高音区仅支持 1")
         if self.semitone not in (0, 1):
             raise ValueError(f"semitone 必须是 0/1: {self.semitone}")
         if not isinstance(self.dur, (int, float)) or isinstance(self.dur, bool):

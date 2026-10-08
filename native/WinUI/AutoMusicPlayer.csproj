@@ -5,6 +5,8 @@
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <RootNamespace>AutoMusicPlayer</RootNamespace>
     <AssemblyName>AutoMusicPlayerLite</AssemblyName>
+    <Product>Auto Music Player Lite</Product>
+    <AssemblyTitle>Auto Music Player Lite</AssemblyTitle>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>../../app.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
@@ -18,7 +20,7 @@
     <PublishTrimmed>false</PublishTrimmed>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.2.0</Version>
+    <Version>2.2.1</Version>
     <Description>Native WinUI 3 interface with an offline Python input engine.</Description>
   </PropertyGroup>
   <ItemGroup>

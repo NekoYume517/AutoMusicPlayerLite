@@ -200,8 +200,11 @@ def _flatten(elements, params: CompileParams, source_index_offset: int = 0):
             continue
 
         for note in notes:
-            mod, mod_deg = resolve_modifier(note.octave, note.semitone,
-                                            params.modifier_policy)
+            if note.octave == 2 and note.semitone:
+                mod, mod_deg = Modifier.HIGHER, None
+            else:
+                mod, mod_deg = resolve_modifier(1 if note.octave == 2 else note.octave, note.semitone,
+                                                params.modifier_policy)
             if mod_deg is not None:
                 degradations.append(replace(mod_deg, index=idx))
             if mod is None:
@@ -219,7 +222,14 @@ def _flatten(elements, params: CompileParams, source_index_offset: int = 0):
             override = None
             if not note.semitone:
                 override = params.pitch_direct_overrides.get(note.note_id)
-            if override:
+            if note.octave == 2:
+                # The source's eighth key is one octave above Z.  Its right
+                # mouse modifier reaches C6 without folding it back to C5.
+                key = params.pitch_direct_overrides.get("high_1", ",")
+                button = params.modifier_buttons.get(mod)
+                if note.semitone:
+                    button = tuple(b for b in (button, params.modifier_buttons.get(Modifier.SEMITONE)) if b)
+            elif override:
                 key, button = override, None
             else:
                 key = params.pitch_keys[note.pitch - 1]
@@ -227,6 +237,12 @@ def _flatten(elements, params: CompileParams, source_index_offset: int = 0):
             plan.append({"kind": "note", "dur": note.dur, "button": button,
                          "key": key, "index": idx, "source_index": source_index})
     return plan, degradations, skipped
+
+
+def _mouse_events(t, buttons, action, source_index=None):
+    """A compound modifier still emits separate physical mouse inputs."""
+    values = buttons if isinstance(buttons, tuple) else (buttons,)
+    return [InputEvent(t, "mouse", button, action, source_index) for button in values if button]
 
 
 def compile_score(elements, params: CompileParams, timings=None, *, source_index_offset: int = 0) -> CompileResult:
@@ -258,9 +274,7 @@ def compile_score(elements, params: CompileParams, timings=None, *, source_index
     for i, item in enumerate(plan):
         if item["kind"] == "rest":
             if held:
-                result.events.append(InputEvent(
-                    cursor, "mouse", held, "up", item["source_index"]
-                ))
+                result.events.extend(_mouse_events(cursor, held, "up", item["source_index"]))
                 cursor += release_settle
                 held = None
             cursor += item["dur"] * beat_ms + gap
@@ -282,10 +296,10 @@ def compile_score(elements, params: CompileParams, timings=None, *, source_index
         button = item["button"]
         if button and button != held:
             if held:                      # 切换修饰键:先松旧的,留足间隔再按新的
-                result.events.append(InputEvent(t, "mouse", held, "up", item["source_index"]))
+                result.events.extend(_mouse_events(t, held, "up", item["source_index"]))
                 t += release_settle
                 nominal_t += release_settle
-            result.events.append(InputEvent(t, "mouse", button, "down", item["source_index"]))
+            result.events.extend(_mouse_events(t, button, "down", item["source_index"]))
             t += settle
             nominal_t += settle
             held = button
@@ -311,9 +325,7 @@ def compile_score(elements, params: CompileParams, timings=None, *, source_index
         if held and held != next_button:
             release_end = t_up + release_settle
             nominal_release_end = nominal_t_up + release_settle
-            result.events.append(InputEvent(
-                release_end, "mouse", held, "up", item["source_index"]
-            ))
+            result.events.extend(_mouse_events(release_end, held, "up", item["source_index"]))
             held = None
 
         result.note_count += 1
@@ -325,7 +337,7 @@ def compile_score(elements, params: CompileParams, timings=None, *, source_index
         )
 
     if held:                              # 收尾兜底
-        result.events.append(InputEvent(cursor, "mouse", held, "up"))
+        result.events.extend(_mouse_events(cursor, held, "up"))
         held = None
 
     result.events.sort(key=lambda e: (e.t_ms, 0 if e.action == "up" else 1))

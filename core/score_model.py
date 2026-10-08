@@ -19,7 +19,7 @@ import math
 import re
 from dataclasses import dataclass, field
 
-_NOTE_ID_RE = re.compile(r"^(high|mid|low)_([1-7])$")
+_NOTE_ID_RE = re.compile(r"^(?:(high|mid|low)_([1-7])|(top)_(1))$")
 MIN_BPM, MAX_BPM = 30, 300
 MAX_DUR_BEATS = 16.0
 
@@ -97,7 +97,7 @@ def _note_from_id(note_id: str, dur: float, semitone: int = 0) -> Note:
     m = _NOTE_ID_RE.match(note_id)
     if not m:
         raise ValueError(f"无效音符: {note_id}(应为 high/mid/low_1~7)")
-    return Note(num=int(m.group(2)), octave=m.group(1), dur=dur, semitone=semitone)
+    return Note(num=int(m.group(2) or m.group(4)), octave=m.group(1) or m.group(3), dur=dur, semitone=semitone)
 
 
 @dataclass

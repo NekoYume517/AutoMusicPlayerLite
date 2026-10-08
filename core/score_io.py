@@ -21,11 +21,11 @@ TPQ = 480          # 导出用的每四分音符 tick 数
 MIN_BPM, MAX_BPM = 30, 300
 MAX_IMPORT_BYTES = 10 * 1024 * 1024
 
-_OCTAVE_OFFSET = {"low": -12, "mid": 0, "high": 12}
+_OCTAVE_OFFSET = {"low": -12, "mid": 0, "high": 12, "top": 24}
 _NUM_SEMITONE = (0, 2, 4, 5, 7, 9, 11)   # 简谱 1-7 = C D E F G A B(自然音级,非半音递增)
 _WHITE_NUM = {0: 1, 2: 2, 4: 3, 5: 4, 7: 5, 9: 6, 11: 7}
 _BLACK_PCS = {1, 3, 6, 8, 10}
-_MIDI_MIN, _MIDI_MAX = 48, 83   # low_1(C3) .. high_7(B5)
+_MIDI_MIN, _MIDI_MAX = 48, 85   # low_1(C3) .. top_1#(C#6)
 
 
 @dataclass
@@ -51,19 +51,21 @@ def note_id_to_midi(note_id: str, semitone: int = 0) -> int:
     octave, sep, num = note_id.partition("_")
     if octave not in _OCTAVE_OFFSET or not sep or not num.isdigit() or not 1 <= int(num) <= 7:
         raise ValueError(f"无效音符: {note_id}(应为 high/mid/low_1~7)")
+    if octave == "top" and num != "1":
+        raise ValueError("双高音区仅支持 1 和 #1")
     if semitone not in (0, 1):
         raise ValueError(f"semitone 必须是 0/1: {semitone}")
     return 60 + _OCTAVE_OFFSET[octave] + _NUM_SEMITONE[int(num) - 1] + semitone
 
 
 def midi_to_note_id(midi: int) -> str | None:
-    """MIDI 音高 → note_id;黑键或 C3~B5 之外返回 None。"""
+    """MIDI 音高 → note_id;黑键或 C3~C#6 之外返回 None。"""
     if not _MIDI_MIN <= midi <= _MIDI_MAX:
         return None
     pc = midi % 12
     if pc in _BLACK_PCS:
         return None
-    octave = ("low", "mid", "high")[midi // 12 - 4]
+    octave = ("low", "mid", "high", "top")[midi // 12 - 4]
     return f"{octave}_{_WHITE_NUM[pc]}"
 
 
@@ -114,7 +116,7 @@ def _native_json_result(data, stem: str) -> ImportResult | None:
     return ImportResult(name=name, bpm=bpm, notes=notes, kind="json")
 
 
-_EXTERNAL_NOTE_RE = re.compile(r"^([+-]?)(#?)([1-7])$")
+_EXTERNAL_NOTE_RE = re.compile(r"^([+-]?|\+\+)(#?)([1-7])$")
 _SCALE = (0, 2, 4, 5, 7, 9, 11)
 _KEY_DEGREE = {key: index for index, key in enumerate("zxcvbnm", start=1)}
 _KEY_DEGREE[","] = 1
@@ -126,7 +128,9 @@ def _external_event_pitch(event, index: int) -> int:
     if match:
         octave, accidental, degree = match.groups()
         pitch = 60 + _SCALE[int(degree) - 1]
-        pitch += {"": 0, "+": 12, "-": -12}[octave]
+        if octave == "++" and degree != "1":
+            raise ValueError("双高音区仅支持 1 和 #1")
+        pitch += {"": 0, "+": 12, "-": -12, "++": 24}[octave]
         pitch += 1 if accidental else 0
     else:
         key = str(event.get("key") or "").lower()

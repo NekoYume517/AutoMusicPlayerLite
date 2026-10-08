@@ -7,19 +7,19 @@
 [Setup]
 AppId={{ED9CEAF1-E7B5-4D87-B095-1E4C7E215E03}
 AppName=Auto Music Player Lite
-AppVersion=2.2.0
-AppVerName=Auto Music Player Lite 2.2.0
+AppVersion=2.2.1
+AppVerName=Auto Music Player Lite 2.2.1
 AppPublisher=NekoYume517
 AppPublisherURL=https://github.com/NekoYume517/AutoMusicPlayerLite
-DefaultDirName={localappdata}\Programs\AutoMusicPlayerLitePublic
-DefaultGroupName=Auto Music Player Lite Public
+DefaultDirName={localappdata}\Programs\AutoMusicPlayerLite
+DefaultGroupName=Auto Music Player Lite
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0.19041
 OutputDir={#OutputDir}
-OutputBaseFilename=AutoMusicPlayerLite-2.2.0-Setup-x64
+OutputBaseFilename=AutoMusicPlayerLite-2.2.1-Setup-x64
 SetupIconFile={#PublishDir}\app.ico
 UninstallDisplayIcon={app}\AutoMusicPlayerLite.exe
 Compression=lzma2
@@ -29,7 +29,7 @@ LicenseFile={#PublishDir}\LICENSE
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
-VersionInfoVersion=2.2.0.0
+VersionInfoVersion=2.2.1.0
 VersionInfoDescription=Auto Music Player Lite native WinUI 3 installer
 
 [Languages]
@@ -44,7 +44,11 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\Auto Music Player Lite"; Filename: "{app}\AutoMusicPlayerLite.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\Auto Music Player Lite Public"; Filename: "{app}\AutoMusicPlayerLite.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\Auto Music Player Lite"; Filename: "{app}\AutoMusicPlayerLite.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+
+[InstallDelete]
+Type: files; Name: "{autodesktop}\Auto Music Player Lite Public.lnk"
+Type: files; Name: "{autoprograms}\Auto Music Player Lite Public\Auto Music Player Lite.lnk"
 
 [Run]
 Filename: "{app}\AutoMusicPlayerLite.exe"; Description: "Launch Auto Music Player Lite"; Flags: nowait postinstall skipifsilent

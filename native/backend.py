@@ -48,7 +48,7 @@ from core.midi_io import write_midi
 from core.window_monitor import _get_fg_hwnd, _get_window_title
 from core.windows_reliability import inspect_target_elevation
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 _write_lock = threading.RLock()
 
 def send(value):
@@ -693,7 +693,7 @@ class Service:
         ids = note.get("notes", [])
         def pitch(n):
             octave, number = n.split("_")
-            return number + ("'" if octave == "high" else "," if octave == "low" else "") + ("#" if note.get("semitone") else "")
+            return number + ("''" if octave == "top" else "'" if octave == "high" else "," if octave == "low" else "") + ("#" if note.get("semitone") else "")
         token = "0" if not ids else pitch(ids[0]) if len(ids) == 1 else "[" + " ".join(map(pitch, ids)) + "]"
         # The existing text grammar accepts conventional durations only; JSON editing preserves arbitrary durations.
         durations = {1: "", .5: "_", .25: "__", .125: "___", 2: "-", 4: "--", 1.5: "·", .75: "_·", 3: "-·", 6: "--·"}

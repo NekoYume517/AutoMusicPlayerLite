@@ -387,11 +387,13 @@ public sealed partial class MainWindow : Window
     });
     private async Task ImportReport(JsonElement result)
     {
-        StatusText.Text = $"已导入 {result.GetProperty("count")} 首曲目";
-        var messages = new List<string>();
-        foreach (string key in new[] { "errors", "warnings", "skipped" })
-            if (result.TryGetProperty(key, out var values)) messages.AddRange(values.EnumerateArray().Select(v => v.ToString()));
-        if (messages.Count > 0) await ShowError(StatusText.Text + "\n\n" + string.Join("\n", messages.Take(20)));
+        int count = result.GetProperty("count").GetInt32();
+        var failures = ReportMessages(result, "errors").Concat(ReportMessages(result, "skipped")).ToList();
+        var warnings = ReportMessages(result, "warnings");
+        StatusText.Text = $"已导入 {count} 首曲目" + (failures.Count > 0 ? $" · 未导入 {failures.Count} 项" : "");
+        if (failures.Count + warnings.Count > 0)
+            await ShowOperationReport(count == 0 && failures.Count > 0 ? "导入未完成" : failures.Count > 0 ? "部分曲目未导入" : "导入完成",
+                StatusText.Text, failures.Concat(warnings));
     }
     private async void ExportClick(object sender, RoutedEventArgs e) => await Run(async () =>
     {
@@ -428,7 +430,7 @@ public sealed partial class MainWindow : Window
         mode.SelectionChanged += (_, _) => text.Text = mode.SelectedIndex == 0 ? originalText : originalJson;
         var error = new TextBlock { Foreground = new SolidColorBrush(Microsoft.UI.Colors.IndianRed), TextWrapping = TextWrapping.Wrap };
         var content = new StackPanel { Spacing = 14, Width = 560 }; content.Children.Add(name); content.Children.Add(bpm); content.Children.Add(mode); content.Children.Add(text);
-        content.Children.Add(new TextBlock { Text = "简谱示例：1 2_ 3' 4, 5# [1 3 5]- 0。特殊拍数可写 3{1.25}。已有乐谱默认使用 JSON；切换格式会恢复原始内容。", TextWrapping = TextWrapping.Wrap, FontSize = 12 }); content.Children.Add(error);
+        content.Children.Add(new TextBlock { Text = "简谱示例：1 2_ 3' 4, 5# [1 3 5]- 0。双高音 1 写为 1''；特殊拍数可写 3{1.25}。已有乐谱默认使用 JSON；切换格式会恢复原始内容。", TextWrapping = TextWrapping.Wrap, FontSize = 12 }); content.Children.Add(error);
         var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = song is null ? "新建简谱" : "编辑乐谱", Content = content, PrimaryButtonText = "保存", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
         dialog.PrimaryButtonClick += async (_, ev) =>
         {
@@ -523,11 +525,14 @@ public sealed partial class MainWindow : Window
         // Uses a recording driver and isolated data directory; creates no real keyboard/mouse input.
         if (LibraryPage.ActualWidth < 600 || Root.ActualHeight < 500) throw new Exception("WinUI layout did not render");
         checks.Add("native WinUI window rendered");
-        var saved = await backend.Call("save", new { name = "原生界面自检曲目", bpm = 120, text = "1 2_ 3' 4, 5# [1 3 5]- 0" });
+        var saved = await backend.Call("save", new { name = "原生界面自检曲目", bpm = 120, text = "1 2_ 3' 4, 5# [1 3 5]- 0 1''" });
         int id = saved.GetProperty("id").GetInt32();
         await RefreshLibrary();
         if (!songs.Any(s => s.Id == id)) throw new Exception("library refresh failed");
         await SelectSong(songs.First(s => s.Id == id));
+        if (!score.GetProperty("notes").EnumerateArray().Any(note => note.GetProperty("notes").EnumerateArray().Any(pitch => pitch.GetString() == "top_1")) ||
+            !score.GetProperty("editor_text").GetString()!.Contains("1''")) throw new Exception("Double-high tonic was lost in native RPC or editor text");
+        checks.Add("double-high tonic persists through native save, selection and text editing");
         checks.Add("library list and selection");
         SearchBox.Text = "自检"; FilterSongs();
         if (((List<SongItem>)SongsList.ItemsSource).Count != 1) throw new Exception("search failed");
@@ -613,7 +618,7 @@ public sealed partial class MainWindow : Window
         checks.Add("search hook suppresses typed key pairs, ignores injected playback and preserves foreground");
         mini.Close(); await backend.Call("delete", new { id = otherId });
         await backend.Call("delete", new { id });
-        File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = "2.2.0" }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = "2.2.1" }, new JsonSerializerOptions { WriteIndented = true }));
         Close();
     }
 }

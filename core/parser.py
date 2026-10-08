@@ -66,7 +66,11 @@ def _split_pitch_dur(suffix: str):
     if rest.startswith("#"):
         semitone = 1
         rest = rest[1:]
-    if rest.startswith(("'", ",")):
+    if rest.startswith("''"):
+        pitch = "top"
+        rest = rest[2:]
+        has_octave = True
+    elif rest.startswith(("'", ",")):
         pitch = _PITCH_SUFFIX[rest[0]]
         rest = rest[1:]
         has_octave = True
