@@ -12,7 +12,7 @@ AppVerName=Auto Music Player Lite 2.1.0
 AppPublisher=NekoYume517
 AppPublisherURL=https://github.com/NekoYume517/AutoMusicPlayerLite
 DefaultDirName={localappdata}\Programs\AutoMusicPlayerLitePublic
-DefaultGroupName=Auto Music Player Lite
+DefaultGroupName=Auto Music Player Lite Public
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64os
@@ -44,7 +44,7 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\Auto Music Player Lite"; Filename: "{app}\AutoMusicPlayerLite.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\Auto Music Player Lite"; Filename: "{app}\AutoMusicPlayerLite.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\Auto Music Player Lite Public"; Filename: "{app}\AutoMusicPlayerLite.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\AutoMusicPlayerLite.exe"; Description: "Launch Auto Music Player Lite"; Flags: nowait postinstall skipifsilent

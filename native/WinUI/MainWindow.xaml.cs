@@ -524,7 +524,13 @@ public sealed partial class MainWindow : Window
         if (SeekSlider.Value != 2) throw new Exception("progress event binding failed");
         checks.Add("RPC status and progress binding");
         Nav.SelectedItem = Nav.MenuItems[2]; await RefreshLogs(); checks.Add("logs navigation");
-        Nav.SelectedItem = Nav.SettingsItem; ThemeBox.SelectedIndex = 2; checks.Add("settings and dark theme");
+        Nav.SelectedItem = Nav.SettingsItem; ThemeBox.SelectedIndex = 2;
+        if (!AutoUpdateToggle.IsOn || !CheckUpdateButton.IsEnabled || InstallUpdateButton.IsEnabled) throw new Exception("Update settings controls failed");
+        AutoUpdateToggle.IsOn = false; SaveSettings();
+        using (var updateSettings = JsonDocument.Parse(File.ReadAllText(settingsFile)))
+            if (updateSettings.RootElement.GetProperty("autoUpdate").GetBoolean()) throw new Exception("Update setting did not persist");
+        AutoUpdateToggle.IsOn = true; SaveSettings();
+        checks.Add("settings, dark theme and persisted automatic update controls");
         var export = Path.Combine(backend.DataDirectory, "self-test-export.json");
         await backend.Call("export", new { id, path = export });
         if (!File.Exists(export)) throw new Exception("export failed"); checks.Add("JSON export");

@@ -18,7 +18,12 @@ public sealed partial class MainWindow
     {
         if (updateBusy || closing || selfTest) return;
         string stamp = Path.Combine(backend.DataDirectory, "update-last-check.txt");
-        if (!manual && File.Exists(stamp) && DateTime.TryParse(await File.ReadAllTextAsync(stamp), out var previous) && DateTime.UtcNow - previous < TimeSpan.FromHours(24)) return;
+        if (!manual)
+        {
+            try { if (File.Exists(stamp) && DateTime.TryParse(await File.ReadAllTextAsync(stamp), out var previous) && DateTime.UtcNow - previous < TimeSpan.FromHours(24)) return; }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
         updateBusy = true; CheckUpdateButton.IsEnabled = InstallUpdateButton.IsEnabled = false;
         UpdateStatusText.Text = "正在检查稳定版本…";
         try
@@ -30,7 +35,7 @@ public sealed partial class MainWindow
             UpdateNotesText.Text = availableUpdate?.Notes ?? "";
             InstallUpdateButton.IsEnabled = availableUpdate is not null;
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { if (!closing) UpdateStatusText.Text = "检查超时或已取消，可稍后重试。"; }
         catch (Exception error) { if (!closing) UpdateStatusText.Text = "检查失败：" + error.Message + "。可稍后重试或查看版本发布页。"; }
         finally { updateBusy = false; if (!closing) CheckUpdateButton.IsEnabled = true; }
     }
