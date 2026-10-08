@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Windows.ApplicationModel.DataTransfer;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -425,20 +426,33 @@ public sealed partial class MainWindow : Window
     {
         if (playbackState is "playing" or "countdown" or "practice" or "preview") throw new InvalidOperationException("请先暂停，再编辑乐谱。");
         var old = song is null ? default : await backend.Call("get", new { id = song.Id });
+        string? prompt = song is null ? (await backend.Call("ai_prompt")).GetProperty("text").GetString() : null;
         var name = new TextBox { Header = "曲名", Text = song?.Name ?? "新曲目" };
         var bpm = new NumberBox { Header = "BPM", Minimum = 30, Maximum = 300, Value = song?.Bpm ?? 100, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
         var mode = new ComboBox { Header = "编辑格式", HorizontalAlignment = HorizontalAlignment.Stretch };
         mode.Items.Add("简谱文本"); mode.Items.Add("音符 JSON · 保留任意时值");
-        var text = new TextBox { Header = "乐谱", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 250, FontFamily = new FontFamily("Cascadia Mono, Consolas") };
+        var text = new TextBox { Header = "乐谱", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 220, FontFamily = new FontFamily("Cascadia Mono, Consolas") };
         mode.SelectedIndex = song is null ? 0 : 1;
         string originalText = song is null ? "1 2 3 4 5 6 7 1'" : old.GetProperty("editor_text").GetString()!;
         string originalJson = song is null ? "[]" : JsonSerializer.Serialize(old.GetProperty("notes"), new JsonSerializerOptions { WriteIndented = true });
         text.Text = mode.SelectedIndex == 0 ? originalText : originalJson;
         mode.SelectionChanged += (_, _) => text.Text = mode.SelectedIndex == 0 ? originalText : originalJson;
         var error = new TextBlock { Foreground = new SolidColorBrush(Microsoft.UI.Colors.IndianRed), TextWrapping = TextWrapping.Wrap };
-        var content = new StackPanel { Spacing = 14, Width = 560 }; content.Children.Add(name); content.Children.Add(bpm); content.Children.Add(mode); content.Children.Add(text);
+        var content = new StackPanel { Spacing = 14, MaxWidth = 560 }; content.Children.Add(name); content.Children.Add(bpm); content.Children.Add(mode);
+        AiPromptPanel? promptPanel = null;
+        if (prompt is not null)
+        {
+            promptPanel = new AiPromptPanel(prompt, value =>
+            {
+                if (selfTest) { copiedPromptInSelfTest = value; return; }
+                var package = new DataPackage(); package.SetText(value); Clipboard.SetContent(package); Clipboard.Flush();
+            }, (Style)Root.Resources["Card"]);
+            content.Children.Add(promptPanel);
+        }
+        content.Children.Add(text);
         content.Children.Add(new TextBlock { Text = "简谱示例：1 2_ 3' 4, 5# [1 3 5]- 0。双高音 1 写为 1''；特殊拍数可写 3{1.25}。已有乐谱默认使用 JSON；切换格式会恢复原始内容。", TextWrapping = TextWrapping.Wrap, FontSize = 12 }); content.Children.Add(error);
-        var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = song is null ? "新建简谱" : "编辑乐谱", Content = content, PrimaryButtonText = "保存", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
+        var viewport = new ScrollViewer { Content = content, MaxHeight = Math.Max(240, Root.ActualHeight - 260), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = song is null ? "新建简谱" : "编辑乐谱", Content = viewport, PrimaryButtonText = "保存", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
         dialog.PrimaryButtonClick += async (_, ev) =>
         {
             var deferral = ev.GetDeferral(); dialog.IsPrimaryButtonEnabled = false;
@@ -453,7 +467,10 @@ public sealed partial class MainWindow : Window
             catch (Exception e) { ev.Cancel = true; error.Text = e.Message; }
             finally { dialog.IsPrimaryButtonEnabled = true; deferral.Complete(); }
         };
-        await ShowDialog(dialog);
+        Task promptCheck = Task.CompletedTask;
+        if (selfTest && promptPanel is not null) dialog.Opened += (_, _) => promptCheck = CheckPromptDialog(dialog, viewport, promptPanel);
+        await ShowTestableDialog(dialog, selfTest && promptPanel is not null ? viewport : null, "new-score-editor-preview.png");
+        await promptCheck;
     }
     private async void ImportDatabaseClick(object sender, RoutedEventArgs e) => await Run(async () =>
     {
@@ -532,6 +549,9 @@ public sealed partial class MainWindow : Window
         // Uses a recording driver and isolated data directory; creates no real keyboard/mouse input.
         if (LibraryPage.ActualWidth < 600 || Root.ActualHeight < 500) throw new Exception("WinUI layout did not render");
         checks.Add("native WinUI window rendered");
+        await Editor(null);
+        if (songs.Count != 0 || string.IsNullOrEmpty(copiedPromptInSelfTest)) throw new Exception("New-score prompt dialog did not cancel cleanly");
+        checks.Add("new-score AI prompt expands, copies completely and cancels without saving; editor fits a scrolling dialog");
         var saved = await backend.Call("save", new { name = "原生界面自检曲目", bpm = 120, text = "1 2_ 3' 4, 5# [1 3 5]- 0 1''" });
         int id = saved.GetProperty("id").GetInt32();
         await RefreshLibrary();
@@ -635,7 +655,7 @@ public sealed partial class MainWindow : Window
         checks.Add("search hook suppresses typed key pairs, ignores injected playback and preserves foreground");
         mini.Close(); await backend.Call("delete", new { id = otherId });
         await backend.Call("delete", new { id });
-        File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = "2.2.2" }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = "2.2.3" }, new JsonSerializerOptions { WriteIndented = true }));
         Close();
     }
 }

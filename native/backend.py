@@ -34,6 +34,7 @@ from core.event_logger import EventLogger
 from core.preview_player import PreviewPlayer
 from core.profile import load_profiles, resolve_profile
 from core.parser import parse_jianpu
+from core.prompt import JIANPU_PROMPT
 from core.practice import PracticeSession, build_practice_cues, format_score_note
 from core.humanize import HumanizeParams, make_seed, plan_timings
 from core.transport import prepare_score
@@ -48,7 +49,7 @@ from core.midi_io import write_midi
 from core.window_monitor import _get_fg_hwnd, _get_window_title
 from core.windows_reliability import inspect_target_elevation
 
-VERSION = "2.2.2"
+VERSION = "2.2.3"
 _write_lock = threading.RLock()
 
 def send(value):
@@ -460,6 +461,8 @@ class Service:
             self.player.stop(); self.events.stop()
 
     def request(self, method, args):
+        if method == "ai_prompt":
+            return {"text": JIANPU_PROMPT}
         if method == "hello":
             self.consent = bool(args.get("consent", False))
             return {"version": VERSION, "speed": self.speed, "data_dir": str(self.data), "is_admin": bool(ctypes.windll.shell32.IsUserAnAdmin()),

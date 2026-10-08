@@ -21,7 +21,7 @@ public sealed partial class MainWindow
     {
         if (!selfTest || content is null) return await dialog.ShowAsync();
         var captured = new TaskCompletionSource();
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(filename == "new-score-editor-preview.png" ? 1500 : 600) };
         timer.Tick += async (_, _) =>
         {
             timer.Stop();

@@ -56,7 +56,7 @@ for identity, details in assets["libraries"].items():
 runtime = args.nuget / "microsoft.netcore.app.runtime.win-x64" / "8.0.25"
 for name in ("LICENSE.TXT", "THIRD-PARTY-NOTICES.TXT"):
     shutil.copy2(runtime / name, licenses / ("dotnet-8.0.25-" + name))
-metadata = {"application": "AutoMusicPlayerLite", "version": "2.2.2", "architecture": "x64",
+metadata = {"application": "AutoMusicPlayerLite", "version": "2.2.3", "architecture": "x64",
             "python": sys.version.split()[0], "dotnet": "8.0.25", "dependencies": versions,
             "nuget_packages": nuget_packages, "user_data_included": False, "edition": "public", "bundled_scores": 0}
 (dest / "build-info.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
