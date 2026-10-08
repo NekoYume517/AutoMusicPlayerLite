@@ -199,6 +199,7 @@ public sealed partial class MainWindow : Window
         PlayerSong.IsEnabled = ProfileBox.IsEnabled = ModeBox.IsEnabled = ScenarioBox.IsEnabled = BpmBox.IsEnabled =
             TransposeBox.IsEnabled = HumanizeSwitch.IsEnabled = LatencyBox.IsEnabled = StartBox.IsEnabled = EndBox.IsEnabled = !active;
         PlayButton.IsEnabled = selected is not null && !active;
+        ResetButton.IsEnabled = selected is not null;
         PauseButton.IsEnabled = active;
         PreviewButton.IsEnabled = selected is not null && playbackState is not ("playing" or "countdown" or "practice");
         PreviewButton.Content = playbackState == "preview" ? "停止试听" : "钢琴试听";
@@ -220,6 +221,11 @@ public sealed partial class MainWindow : Window
         PlayerPage.Visibility = page == "player" ? Visibility.Visible : Visibility.Collapsed;
         LogsPage.Visibility = page == "logs" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = page == "settings" ? Visibility.Visible : Visibility.Collapsed;
+        PageTitle.Text = page switch { "player" => "演奏控制", "logs" => "演奏记录", "settings" => "设置", _ => "乐谱库" };
+        PageSubtitle.Text = page switch { "player" => "调整节奏与片段；在乐谱库或小窗中开始演奏。", "logs" => "查看演奏进度、输入事件与节奏偏差。", "settings" => "按你的习惯设置外观、权限与数据。", _ => "" };
+        LibraryCount.Visibility = page == "library" ? Visibility.Visible : Visibility.Collapsed;
+        PageSubtitle.Visibility = page == "library" ? Visibility.Collapsed : Visibility.Visible;
+        RefreshLogsButton.Visibility = page == "logs" ? Visibility.Visible : Visibility.Collapsed;
         if (page == "logs" && ready) _ = Run(RefreshLogs);
     }
     private async Task RefreshLibrary()
@@ -239,7 +245,7 @@ public sealed partial class MainWindow : Window
         SelectedTitle.Text = selected?.Name ?? "尚未选择";
         SelectedMeta.Text = selected?.Subtitle ?? "从左侧选择一首曲目。";
         GoButton.IsEnabled = EditButton.IsEnabled = ExportButton.IsEnabled = DeleteButton.IsEnabled = selected is not null;
-        PlayButton.IsEnabled = PreviewButton.IsEnabled = selected is not null;
+        PlayButton.IsEnabled = PreviewButton.IsEnabled = ResetButton.IsEnabled = selected is not null;
         if (selected is null) { ScoreDescription.Text = "先在乐谱库选择一首曲目。"; score = default; }
         mini?.UpdateSongs(songs, selected);
         UpdateBatchControls();
@@ -298,7 +304,7 @@ public sealed partial class MainWindow : Window
         SelectedMeta.Text = song.Subtitle + $"\n{count} 个元素";
         double duration = result.GetProperty("notes").EnumerateArray().Sum(n => n.GetProperty("dur").GetDouble()) * 60 / song.Bpm;
         ScoreDescription.Text = $"{song.Name}  ·  {count} 个元素  ·  约 {duration / 60:0}:{duration % 60:00}";
-        GoButton.IsEnabled = EditButton.IsEnabled = ExportButton.IsEnabled = DeleteButton.IsEnabled = PlayButton.IsEnabled = PreviewButton.IsEnabled = true;
+        GoButton.IsEnabled = EditButton.IsEnabled = ExportButton.IsEnabled = DeleteButton.IsEnabled = PlayButton.IsEnabled = PreviewButton.IsEnabled = ResetButton.IsEnabled = true;
         updating = false;
         mini?.UpdateSongs(songs, selected);
         UpdateBatchControls();
@@ -326,7 +332,8 @@ public sealed partial class MainWindow : Window
     private async void PlayClick(object sender, RoutedEventArgs e) => await StartPlayback();
     private async void PauseClick(object sender, RoutedEventArgs e) => await Run(async () => await backend.Call("stop"));
     private async void ResetClick(object sender, RoutedEventArgs e) => await Run(async () => await backend.Call("reset"));
-    private async void PreviewClick(object sender, RoutedEventArgs e) => await Run(async () => { await CommitSpeed(); await backend.Call("preview", PlaybackArgs()); });
+    private Task TogglePreview() => Run(async () => { seekTimer.Stop(); await CommitSpeed(); await backend.Call("preview", PlaybackArgs()); });
+    private async void PreviewClick(object sender, RoutedEventArgs e) => await TogglePreview();
     private void SpeedChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (ready && !speedUpdating) ScheduleSpeed(e.NewValue);
@@ -496,7 +503,7 @@ public sealed partial class MainWindow : Window
     {
         if (mini is not null) return;
         mini = new MiniWindow(this, songs, selected, Root.ActualTheme,
-            () => _ = StartPlayback(), () => _ = Run(async () => await backend.Call("stop")),
+            () => _ = StartPlayback(), () => _ = Run(async () => await backend.Call("stop")), TogglePreview,
             SelectSong, async position =>
             {
                 var values = PlaybackArgs(); values["position"] = position;
@@ -538,6 +545,7 @@ public sealed partial class MainWindow : Window
         if (((List<SongItem>)SongsList.ItemsSource).Count != 1) throw new Exception("search failed");
         SearchBox.Text = ""; FilterSongs(); checks.Add("song search");
         await CheckLibraryManagement(checks, id);
+        await CheckTransportPlacement(checks);
         Nav.SelectedItem = Nav.MenuItems[1];
         await Task.Delay(300);
         if (PlayerPage.Visibility != Visibility.Visible || !PlayButton.IsEnabled || PlayerPage.ActualHeight <= 0) throw new Exception("player page failed");
@@ -584,6 +592,15 @@ public sealed partial class MainWindow : Window
         mini.CheckBounds();
         await UiSnapshot.Save((FrameworkElement)mini.Content, Path.Combine(Path.GetDirectoryName(selfTestFile!)!, "mini-preview.png"));
         checks.Add("compact player content fits within 200 logical pixels height");
+        await mini.TogglePreview(); await Task.Delay(150);
+        var previewStatus = await backend.Call("status");
+        if (previewStatus.GetProperty("state").GetString() != "preview" || !mini.IsPreviewing || PreviewButton.Content?.ToString() != "停止试听")
+            throw new Exception("mini preview did not synchronize the library transport");
+        if (NonActivatingSearch.GetForegroundWindow() == mini.Hwnd) throw new Exception("preview stole foreground focus");
+        await mini.TogglePreview(); await Task.Delay(150);
+        if ((await backend.Call("status")).GetProperty("state").GetString() == "preview" || mini.IsPreviewing)
+            throw new Exception("mini preview did not stop");
+        checks.Add("mini audition starts/stops local piano, synchronizes library controls and preserves foreground");
         mini.OpenPicker(); await Task.Delay(250);
         var picker = mini.Picker ?? throw new Exception("song picker did not open");
         if (!picker.HasRendered || !picker.DoesNotActivate || NonActivatingSearch.GetForegroundWindow() == picker.Hwnd) throw new Exception("song picker stole focus or did not render");
@@ -618,7 +635,7 @@ public sealed partial class MainWindow : Window
         checks.Add("search hook suppresses typed key pairs, ignores injected playback and preserves foreground");
         mini.Close(); await backend.Call("delete", new { id = otherId });
         await backend.Call("delete", new { id });
-        File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = "2.2.1" }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = "2.2.2" }, new JsonSerializerOptions { WriteIndented = true }));
         Close();
     }
 }

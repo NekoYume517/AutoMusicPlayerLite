@@ -16,10 +16,12 @@ public sealed class MiniWindow : NonActivatingWindow
     private readonly Button playButton;
     private readonly Button previous;
     private readonly Button next;
+    private readonly Button previewButton = new() { Content = "试听", Width = 52, Height = 32, MinHeight = 32, Padding = new Thickness(4, 0, 4, 0), FontSize = 12, IsTabStop = false };
     private readonly Func<SongItem, Task> choose;
     private readonly Func<int, Task> seek;
     private readonly Action pause;
     private readonly Action play;
+    private readonly Func<Task> preview;
     private readonly MainWindow parent;
     private readonly DispatcherTimer seekTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
     private readonly ElementTheme theme;
@@ -30,10 +32,12 @@ public sealed class MiniWindow : NonActivatingWindow
     internal SongPickerWindow? Picker => picker;
     public long[] InputWindowHandles => picker is null ? [Hwnd.ToInt64()] : [Hwnd.ToInt64(), picker.Hwnd.ToInt64()];
     internal double ContentHeight => ((FrameworkElement)Content).ActualHeight;
+    internal bool IsPreviewing => previewing;
+    private bool previewing, performing;
     public MiniWindow(MainWindow parent, List<SongItem> songs, SongItem? selected, ElementTheme theme,
-                      Action play, Action pause, Func<SongItem, Task> choose, Func<int, Task> seek, double speed, Action<double> changeSpeed, Action restore)
+                      Action play, Action pause, Func<Task> preview, Func<SongItem, Task> choose, Func<int, Task> seek, double speed, Action<double> changeSpeed, Action restore)
     {
-        this.parent = parent; this.play = play; this.pause = pause; this.choose = choose; this.seek = seek; this.theme = theme;
+        this.parent = parent; this.play = play; this.pause = pause; this.preview = preview; this.choose = choose; this.seek = seek; this.theme = theme;
         Title = "演奏小窗";
         var root = new Grid { Padding = new Thickness(16, 10, 16, 12), RowSpacing = 4, RequestedTheme = theme, Background = Surface(theme) };
         foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) root.RowDefinitions.Add(new RowDefinition { Height = height });
@@ -46,6 +50,8 @@ public sealed class MiniWindow : NonActivatingWindow
         var status = new Grid { ColumnSpacing = 8 }; Grid.SetRow(status, 2); status.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); status.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); status.Children.Add(message); Grid.SetColumn(time, 1); status.Children.Add(time); root.Children.Add(status);
         var controls = new Grid { ColumnSpacing = 12, Margin = new Thickness(0, 6, 0, 0) }; Grid.SetRow(controls, 3);
         foreach (var width in new[] { new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star) }) controls.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
+        previewButton.HorizontalAlignment = HorizontalAlignment.Left; previewButton.VerticalAlignment = VerticalAlignment.Center;
+        ToolTipService.SetToolTip(previewButton, "本地钢琴试听 / 停止试听"); previewButton.Click += async (_, _) => await TogglePreview(); controls.Children.Add(previewButton);
         previous = IconButton(Symbol.Previous, "上一曲", 36); Grid.SetColumn(previous, 1); previous.Click += async (_, _) => await ChangeSong(-1); controls.Children.Add(previous);
         playButton = new Button { Content = playIcon, Width = 44, Height = 44, CornerRadius = new CornerRadius(22), IsTabStop = false, Style = (Style)Application.Current.Resources["AccentButtonStyle"] };
         Grid.SetColumn(playButton, 2); playButton.Click += async (_, _) => { picker?.Close(); seekTimer.Stop(); if (manualSeek) { await SeekTo((int)progress.Value); manualSeek = false; } if (active) pause(); else play(); }; controls.Children.Add(playButton); ToolTipService.SetToolTip(playButton, "播放 / 暂停 · F6 / F8");
@@ -76,7 +82,7 @@ public sealed class MiniWindow : NonActivatingWindow
     internal void CheckBounds()
     {
         var root = (FrameworkElement)Content;
-        foreach (var item in new FrameworkElement[] { title, progress, playButton, previous, next, speedSlider, speedLabel })
+        foreach (var item in new FrameworkElement[] { title, progress, playButton, previous, next, previewButton, speedSlider, speedLabel })
         {
             var p = item.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
             if (item.ActualWidth <= 0 || item.ActualHeight <= 0 || p.X < 0 || p.Y < 0 || p.X + item.ActualWidth > root.ActualWidth + 1 || p.Y + item.ActualHeight > root.ActualHeight + 1)
@@ -87,6 +93,7 @@ public sealed class MiniWindow : NonActivatingWindow
     {
         songs = values; selected = song; title.Text = song?.Name ?? "选择一首曲目";
         playButton.IsEnabled = song is not null && !selecting; previous.IsEnabled = next.IsEnabled = songs.Count > 1 && !selecting;
+        previewButton.IsEnabled = song is not null && !selecting && !performing;
         picker?.UpdateSongs(songs, selected);
     }
     internal void OpenPicker()
@@ -116,9 +123,19 @@ public sealed class MiniWindow : NonActivatingWindow
         try { await seek(position); message.Text = "已跳转 · F6 继续"; }
         catch (Exception exc) { ShowMessage(exc.Message); }
     }
+    internal async Task TogglePreview()
+    {
+        if (!previewButton.IsEnabled) return;
+        picker?.Close(); seekTimer.Stop(); manualSeek = false;
+        try { await preview(); }
+        catch (Exception exc) { ShowMessage(exc.Message); }
+    }
     public void Update(string text, int position, int total, string state, double elapsed, double duration)
     {
         active = state is "playing" or "countdown" or "practice" or "preview";
+        previewing = state == "preview"; performing = state is "playing" or "countdown" or "practice";
+        previewButton.Content = previewing ? "停止" : "试听";
+        previewButton.IsEnabled = selected is not null && !selecting && !performing;
         playIcon.Symbol = active ? Symbol.Pause : Symbol.Play;
         updating = true; progress.Maximum = Math.Max(total, 1); if (!manualSeek) progress.Value = Math.Clamp(position, 0, Math.Max(total, 1)); progress.IsEnabled = total > 0 && !selecting; updating = false;
         static string Clock(double seconds) => $"{(int)Math.Max(0, seconds) / 60}:{(int)Math.Max(0, seconds) % 60:00}";

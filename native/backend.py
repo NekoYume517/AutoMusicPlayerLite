@@ -48,7 +48,7 @@ from core.midi_io import write_midi
 from core.window_monitor import _get_fg_hwnd, _get_window_title
 from core.windows_reliability import inspect_target_elevation
 
-VERSION = "2.2.1"
+VERSION = "2.2.2"
 _write_lock = threading.RLock()
 
 def send(value):
@@ -305,6 +305,8 @@ class Service:
             self.message = "练习已暂停"
         if self.state == "preview":
             self.preview.stop()
+            self.state = "idle"
+            self.message = "试听已停止"
         self.notify()
         return self.status()
 
@@ -634,8 +636,7 @@ class Service:
         if method == "preview":
             with self.lock:
                 if self.state == "preview":
-                    self.preview.stop()
-                    return self.status()
+                    return self.stop()
                 self._quiesce()
                 self.prepare(args)
                 self.state = "preview"
