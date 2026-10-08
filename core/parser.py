@@ -1,0 +1,304 @@
+"""简谱解析器:规范化简谱文本 -> 结构化音符序列。
+
+输出协议(与大模型 prompt 一致):
+- 音高:1-7 中音;数字+' 高音;数字+, 低音;0 休止；升半音可写 1# 或 #1
+- 时值:无后缀=四分音符(1拍);_ = 八分(0.5拍), __ = 十六分(0.25拍);
+  - = 二分(2拍), -- = 全音符(4拍);附点用 . 或 · 跟在时值符号后,时值 ×1.5
+- 和弦:[音1 音2 ...]时值后缀,如 [1' 3' 5']- ;和弦内部只写音高
+- 小节线 | ‖ 、调号行(1=C)、歌词行自动忽略
+
+输出: [{ "notes": ["high_1"], "dur": 0.5 }, ...]
+dur 单位为拍;休止符 notes 为空列表。
+
+两种模式:
+- 宽容模式(默认):无效记号静默跳过,与历史行为一致
+- collect=True:额外返回错误列表,记录每个无效记号的行号、原文与原因,
+  供识别校对页定位问题;音符输出与宽容模式完全一致
+- strict_ai=True:在外部 AI 粘贴入口额外检查相邻音符缺少空格的歧义,
+  只报告问题而不改变既有宽容解析结果
+同一行内记号按从左到右顺序输出,和弦与单音混排时保持真实顺序。
+"""
+
+import re
+from dataclasses import dataclass
+
+_PITCH_SUFFIX = {"'": "high", ",": "low"}
+_EXPLICIT_DUR = r"\{(?:\d+(?:\.\d+)?|\.\d+)\}"
+_CHORD_RE = re.compile(r"[\[\(]([^\]\)]+)[\]\)]([_\-.·]*(?:" + _EXPLICIT_DUR + r")?)")
+# 兼容三角洲社区谱的前缀升半音写法 ``#1``；内部统一转成 ``1#``
+# 再交给既有的音高/时值拆分逻辑处理。
+_NOTE_RE = re.compile(r"#?[0-7](?:'|,|\.|·|_|-|#)*(?:" + _EXPLICIT_DUR + r")?")
+_TUNE_LINE_RE = re.compile(r"^\s*1\s*=\s*[A-Ga-g]")
+_CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
+
+AI_MISSING_SEPARATOR_REASON = (
+    "疑似缺少音符分隔空格；请按每个音符一个记号重新输出，"
+    "低音使用英文逗号 ,，下划线 _ 仅表示时值"
+)
+
+
+@dataclass
+class ParseError:
+    line: int      # 行号,从 1 起
+    token: str     # 原文片段
+    reason: str
+
+    def __str__(self):
+        return f"第 {self.line} 行:记号 '{self.token}'——{self.reason}"
+
+
+def _split_pitch_dur(suffix: str):
+    """把数字后的修饰符串拆成(音高, 时值部分, 半音标记)。
+
+    . 双语义判定规则:
+    - . 单独出现(如 5.) → 低音(三角洲下点约定),rest 清空,dur=1.0
+    - . 后跟时值符号(如 5._ 5.-) → 附点,rest 透传给 _parse_dur
+    - · 中文圆点始终作为附点符号
+    - 已有八度标记时(如 1'.) 消费 . 但保留原八度
+
+    # 可出现在八度标记前或后或 . 之后(如 1#, 1'#, 1,#, 5.#);
+    多个 # 不叠加,semitone 恒为 1。
+    """
+    pitch = "mid"
+    semitone = 0
+    rest = suffix
+    has_octave = False
+    if rest.startswith("#"):
+        semitone = 1
+        rest = rest[1:]
+    if rest.startswith(("'", ",")):
+        pitch = _PITCH_SUFFIX[rest[0]]
+        rest = rest[1:]
+        has_octave = True
+    if "#" in rest:
+        semitone = 1
+        rest = rest.replace("#", "")
+    if rest == ".":
+        if not has_octave:
+            pitch = "low"
+        rest = ""
+    return pitch, rest, semitone
+
+
+def _canonical_note_token(token: str) -> str:
+    """把可兼容的前缀升半音记法归一成既有的后缀记法。
+
+    解析器内部一直以 ``数字 + 修饰符`` 为基础；只在这里处理 ``#1``，
+    从而使 ``#1``、``#1'``、``#1,`` 与 ``1#``、``1'#``、``1,#`` 走完全
+    相同的下游路径。
+    """
+    return f"{token[1:]}#" if token.startswith("#") else token
+
+
+def _with_octave(token: str, marker: str) -> str:
+    """给社区谱分区中的单音补八度标记，显式八度优先。"""
+    prefix = "#" if token.startswith("#") else ""
+    body = token[len(prefix):]
+    if len(body) > 1 and body[1] in ("'", ","):
+        return token
+    return f"{prefix}{body[0]}{marker}{body[1:]}"
+
+
+def _normalize_delta_community_notation(line: str) -> str:
+    """兼容三角洲社区谱中不与标准和弦语义冲突的常见记号。
+
+    - ``#1``：由 ``_NOTE_RE`` 直接识别，后续归一为 ``1#``；
+    - ``【1 2】`` / ``（1 2）``：分别表示高、低音区；
+    - ``(5)``：单音圆括号没有和弦价值，按低音 5 处理；多音圆括号仍保留
+      为历史兼容的和弦语法。
+
+    这里只做无歧义转换；ASCII 方括号仍始终表示和弦，避免改变既有乐谱。
+    """
+    def region(match, marker: str) -> str:
+        return _NOTE_RE.sub(lambda m: _with_octave(m.group(0), marker), match.group(1))
+
+    line = re.sub(r"【([^】]+)】", lambda m: region(m, "'"), line)
+    line = re.sub(r"（([^）]+)）", lambda m: region(m, ","), line)
+    return re.sub(
+        r"\((#?[0-7](?:'|,|\.|·|_|-|#)*)\)",
+        lambda m: _with_octave(m.group(1), ","),
+        line,
+    )
+
+
+def _parse_dur(rest: str) -> float:
+    explicit = re.search(_EXPLICIT_DUR + r"$", rest)
+    if explicit:
+        return float(explicit.group(0)[1:-1])
+    dur = 1.0
+    dotted = False
+    for ch in rest:
+        if ch == "_":
+            dur *= 0.5
+        elif ch == "-":
+            dur *= 2.0
+        elif ch in ".·":
+            dotted = True
+    if dotted:
+        dur *= 1.5
+    return dur
+
+
+def _note_id(num: int, pitch: str) -> str:
+    return f"{pitch}_{num}"
+
+
+def _build_single(token: str):
+    """返回 (音符, 问题)。0 一律为休止;休止带八度记号记为问题,不影响输出。"""
+    token = _canonical_note_token(token)
+    num = int(token[0])
+    pitch, rest, semitone = _split_pitch_dur(token[1:])
+    problem = None
+    if num == 0:
+        if token[1:2] in ("'", ","):
+            problem = "休止符 0 不应带八度记号"
+        return {"notes": [], "dur": _parse_dur(token[1:])}, problem
+    dur = _parse_dur(rest)
+    item = {"notes": [_note_id(num, pitch)], "dur": dur}
+    if semitone:
+        item["semitone"] = 1
+    return item, problem
+
+
+def _build_chord(inner: str, suffix: str):
+    """返回 (和弦, 无效内部记号列表);空和弦由调用方丢弃。"""
+    dur = _parse_dur(suffix)
+    note_ids = []
+    invalid = []
+    has_semitone = False
+    for part in re.split(r"[,\s]+", inner.strip()):
+        if not part:
+            continue
+        m = _NOTE_RE.match(part)
+        if not m:
+            invalid.append(part)
+            continue
+        token = _canonical_note_token(m.group(0))
+        num = int(token[0])
+        if num == 0 or not 1 <= num <= 7:
+            invalid.append(part)
+            continue
+        pitch, _, semitone = _split_pitch_dur(token[1:])
+        note_ids.append(_note_id(num, pitch))
+        if semitone:
+            has_semitone = True
+    item = {"notes": note_ids, "dur": dur}
+    if has_semitone:
+        item["semitone"] = 1
+    return item, invalid
+
+
+def _is_lyric_line(line: str) -> bool:
+    """歌词行:中文字符明显多于数字,跳过。"""
+    chinese = len(_CHINESE_RE.findall(line))
+    digits = len(re.findall(r"[0-7]", line))
+    return chinese > digits
+
+
+def _iter_content_lines(text: str):
+    """枚举 (行号, 内容行);跳过空行、调号行与歌词行。"""
+    for line_no, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line:
+            continue
+        if _TUNE_LINE_RE.match(line) or _is_lyric_line(line):
+            continue
+        line = line.replace("|", " ").replace("‖", " ")
+        yield line_no, line
+
+
+def _normalize_ai_symbols(text: str) -> str:
+    """归一外部 AI 常见的等价升号，不改变乐谱数据协议。"""
+    return text.translate(str.maketrans({"♯": "#", "＃": "#"}))
+
+
+def _adjacent_note_fragments(line: str) -> list[str]:
+    """找出时值后缀后没有空白分隔的下一音符，如 ``7_1`` / ``17_1``。
+
+    这类文本可能代表低音、连续音、和弦或时值，无法安全猜测。严格 AI
+    入口只把它标为歧义；``123``、``1#2`` 等历史紧凑谱仍保持兼容。
+    """
+    matches = list(_NOTE_RE.finditer(line))
+    ranges = []
+    for left, right in zip(matches, matches[1:]):
+        if (
+            left.end() == right.start()
+            and any(marker in left.group(0) for marker in ("_", "-"))
+        ):
+            start, end = left.start(), right.end()
+            if ranges and start <= ranges[-1][1]:
+                ranges[-1] = (ranges[-1][0], max(ranges[-1][1], end))
+            else:
+                ranges.append((start, end))
+    return [line[start:end] for start, end in ranges]
+
+
+def _parse_line(line: str, *, strict_ai: bool = False):
+    """解析单行,返回 (音符序列, 问题列表)。问题为 (token, 原因)。"""
+    line = _normalize_delta_community_notation(line)
+    notes = []
+    problems = []
+    if strict_ai:
+        problems.extend(
+            (fragment, AI_MISSING_SEPARATOR_REASON)
+            for fragment in _adjacent_note_fragments(line)
+        )
+    consumed = bytearray(len(line))
+    tokens = []  # (起始位置, 原文, 音符 dict 或 None, 问题或 None)
+
+    for cm in _CHORD_RE.finditer(line):
+        for j in range(cm.start(), cm.end()):
+            consumed[j] = 1
+        chord, invalid = _build_chord(cm.group(1), cm.group(2))
+        for part in invalid:
+            problems.append((part, "和弦内含无效音符"))
+        tokens.append((cm.start(), cm.group(0), chord if chord["notes"] else None, None))
+
+    for m in _NOTE_RE.finditer(line):
+        if any(consumed[m.start():m.end()]):
+            continue  # 和弦跨度内的音符字符
+        note, problem = _build_single(m.group(0))
+        tokens.append((m.start(), m.group(0), note, problem))
+        for j in range(m.start(), m.end()):
+            consumed[j] = 1
+
+    tokens.sort(key=lambda t: t[0])
+    for _, token, note, problem in tokens:
+        if note is not None:
+            notes.append(note)
+        if problem:
+            problems.append((token, problem))
+
+    # 未被任何记号消耗的非空白字符 = 无法识别的内容
+    run_start = None
+    for j in range(len(line) + 1):
+        ch = line[j] if j < len(line) else " "
+        if j < len(line) and not consumed[j] and not ch.isspace():
+            if run_start is None:
+                run_start = j
+        elif run_start is not None:
+            fragment = line[run_start:j]
+            if any(c in "\u2018\u2019\uff0c" for c in fragment):
+                problems.append((fragment, "中文标点不被识别为八度标记，请使用英文 ' 或 ,"))
+            else:
+                problems.append((fragment, "无法识别的内容"))
+            run_start = None
+    return notes, problems
+
+
+def parse_jianpu(text: str, *, collect: bool = False, strict_ai: bool = False):
+    """解析规范化简谱文本。
+
+    collect=False(默认):返回音符序列,无效记号静默跳过(宽容,兼容旧行为)。
+    collect=True:返回 (音符序列, 错误列表),错误含行号/原文/原因。
+    strict_ai=True:额外报告 AI 输出中相邻音符缺少空格的歧义；不改变返回数据格式。
+    """
+    text = _normalize_ai_symbols(text)
+    result = []
+    errors = []
+    for line_no, line in _iter_content_lines(text):
+        notes, problems = _parse_line(line, strict_ai=strict_ai)
+        result.extend(notes)
+        if collect:
+            errors.extend(ParseError(line_no, token, reason) for token, reason in problems)
+    return (result, errors) if collect else result

@@ -1,0 +1,48 @@
+config_version: 2
+app:
+  data_dir: data
+  db_file: scores.db
+  data_mode: auto
+  active_profile: delta_force_harmonica
+keymap:
+  high:
+  - Q
+  - W
+  - E
+  - R
+  - T
+  - Y
+  - U
+  mid:
+  - A
+  - S
+  - D
+  - F
+  - G
+  - H
+  - J
+  low:
+  - Z
+  - X
+  - C
+  - V
+  - B
+  - N
+  - M
+player:
+  default_bpm: 100
+  hold_ratio: 0.75
+  gap_ms: 20
+  modifier_settle_ms: 30
+  modifier_release_ms: 20
+  stop_hotkey: F8
+  latency_compensation_ms: 0
+  humanize:
+    enabled: true
+    jitter_ms: 12
+    breath_ms: 25
+    jitter_correlation: 0.65
+  focus_check:
+    enabled: true
+    poll_interval_ms: 400
+    target_window_title: ''

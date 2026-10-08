@@ -1,0 +1,11 @@
+work/
+outputs/
+**/bin/
+**/obj/
+__pycache__/
+*.py[cod]
+*.db
+*.db-*
+*.log
+*.jsonl
+.vs/
