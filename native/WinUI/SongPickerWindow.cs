@@ -26,7 +26,7 @@ public sealed class SongPickerWindow : NonActivatingWindow
         timeout = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) }; timeout.Tick += (_, _) => EndSearch();
         var root = new Grid { RequestedTheme = theme, Background = MiniWindow.Surface(theme), Padding = new Thickness(16), RowSpacing = 12 };
         foreach (var size in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) root.RowDefinitions.Add(new RowDefinition { Height = size });
-        var header = new StackPanel { Spacing = 4 }; header.Children.Add(new TextBlock { Text = "选择曲目", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold }); header.Children.Add(new TextBlock { Text = "选好即收起，游戏保持前台", FontSize = 12, Opacity = .65 }); root.Children.Add(header);
+        root.Children.Add(CreateHeader("选择曲目", 20, "选好即收起，游戏保持前台"));
         var search = new Grid { ColumnSpacing = 6 }; Grid.SetRow(search, 1); search.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); search.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); search.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var entry = new Button { Content = searchLabel, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, IsTabStop = false };
         entry.Click += (_, _) => { if (input.IsActive) EndSearch(); else BeginSearch(); }; search.Children.Add(entry);

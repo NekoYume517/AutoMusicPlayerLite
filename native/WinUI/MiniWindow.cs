@@ -39,16 +39,18 @@ public sealed class MiniWindow : NonActivatingWindow
     {
         this.parent = parent; this.play = play; this.pause = pause; this.preview = preview; this.choose = choose; this.seek = seek; this.theme = theme;
         Title = "演奏小窗";
-        var root = new Grid { Padding = new Thickness(16, 10, 16, 12), RowSpacing = 4, RequestedTheme = theme, Background = Surface(theme) };
-        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) root.RowDefinitions.Add(new RowDefinition { Height = height });
+        var root = new Grid { Padding = new Thickness(16, 4, 16, 10), RowSpacing = 3, RequestedTheme = theme, Background = Surface(theme) };
+        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) root.RowDefinitions.Add(new RowDefinition { Height = height });
+        root.Children.Add(CreateHeader("演奏小窗"));
         var songRow = new Grid { ColumnSpacing = 12 };
         songRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); songRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         songRow.Children.Add(title); var chevron = new FontIcon { Glyph = "\uE70D", FontSize = 11, Opacity = .65 }; Grid.SetColumn(chevron, 1); songRow.Children.Add(chevron);
-        var songButton = new Button { Content = songRow, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(10, 8, 10, 8), IsTabStop = false };
+        var songButton = new Button { Content = songRow, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(10, 4, 10, 4), IsTabStop = false };
+        Grid.SetRow(songButton, 1);
         ToolTipService.SetToolTip(songButton, "选择曲目 / 搜索"); songButton.Click += (_, _) => OpenPicker(); root.Children.Add(songButton);
-        Grid.SetRow(progress, 1); progress.Margin = new Thickness(0, -3, 0, -3); root.Children.Add(progress);
-        var status = new Grid { ColumnSpacing = 8 }; Grid.SetRow(status, 2); status.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); status.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); status.Children.Add(message); Grid.SetColumn(time, 1); status.Children.Add(time); root.Children.Add(status);
-        var controls = new Grid { ColumnSpacing = 12, Margin = new Thickness(0, 6, 0, 0) }; Grid.SetRow(controls, 3);
+        Grid.SetRow(progress, 2); progress.Margin = new Thickness(0, -3, 0, -3); root.Children.Add(progress);
+        var status = new Grid { ColumnSpacing = 8 }; Grid.SetRow(status, 3); status.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); status.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); status.Children.Add(message); Grid.SetColumn(time, 1); status.Children.Add(time); root.Children.Add(status);
+        var controls = new Grid { ColumnSpacing = 12, Margin = new Thickness(0, 2, 0, 0) }; Grid.SetRow(controls, 4);
         foreach (var width in new[] { new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star) }) controls.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
         previewButton.HorizontalAlignment = HorizontalAlignment.Left; previewButton.VerticalAlignment = VerticalAlignment.Center;
         ToolTipService.SetToolTip(previewButton, "本地钢琴试听 / 停止试听"); previewButton.Click += async (_, _) => await TogglePreview(); controls.Children.Add(previewButton);
@@ -57,7 +59,7 @@ public sealed class MiniWindow : NonActivatingWindow
         Grid.SetColumn(playButton, 2); playButton.Click += async (_, _) => { picker?.Close(); seekTimer.Stop(); if (manualSeek) { await SeekTo((int)progress.Value); manualSeek = false; } if (active) pause(); else play(); }; controls.Children.Add(playButton); ToolTipService.SetToolTip(playButton, "播放 / 暂停 · F6 / F8");
         next = IconButton(Symbol.Next, "下一曲", 36); Grid.SetColumn(next, 3); next.Click += async (_, _) => await ChangeSong(1); controls.Children.Add(next);
         var back = IconButton(Symbol.BackToWindow, "返回主窗口", 30); back.HorizontalAlignment = HorizontalAlignment.Right; Grid.SetColumn(back, 4); back.Click += (_, _) => { restoring = true; Close(); }; controls.Children.Add(back); root.Children.Add(controls);
-        var speedRow = new Grid { ColumnSpacing = 10 }; Grid.SetRow(speedRow, 4); speedRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); speedRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); speedRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var speedRow = new Grid { ColumnSpacing = 10 }; Grid.SetRow(speedRow, 5); speedRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); speedRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); speedRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         speedRow.Children.Add(new TextBlock { Text = "倍速", FontSize = 11, Opacity = .65, VerticalAlignment = VerticalAlignment.Center }); Grid.SetColumn(speedSlider, 1); speedRow.Children.Add(speedSlider); Grid.SetColumn(speedLabel, 2); speedRow.Children.Add(speedLabel); root.Children.Add(speedRow);
         ToolTipService.SetToolTip(speedSlider, "全局倍速 · 0.5–3.0× · 演奏和试听同时生效"); ToolTipService.SetToolTip(speedLabel, "点击恢复 1×");
         speedSlider.ValueChanged += (_, e) => { if (!speedUpdating) changeSpeed(e.NewValue); }; speedLabel.Click += (_, _) => changeSpeed(1);

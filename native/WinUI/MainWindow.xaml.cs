@@ -615,7 +615,8 @@ public sealed partial class MainWindow : Window
         if (NonActivatingSearch.GetForegroundWindow() == mini.Hwnd) throw new Exception("mini window stole foreground focus");
         checks.Add("mini rendered with WS_EX_NOACTIVATE and MA_NOACTIVATE");
         if (mini.ContentHeight > 200) throw new Exception("mini player is too large");
-        mini.CheckBounds();
+        mini.CheckBounds(); mini.CheckChrome();
+        checks.Add("borderless mini: no system caption or DWM border, native drag region excludes close button");
         await UiSnapshot.Save((FrameworkElement)mini.Content, Path.Combine(Path.GetDirectoryName(selfTestFile!)!, "mini-preview.png"));
         checks.Add("compact player content fits within 200 logical pixels height");
         await mini.TogglePreview(); await Task.Delay(150);
@@ -639,6 +640,14 @@ public sealed partial class MainWindow : Window
         picker.SetQuery("不存在的歌名");
         if (picker.VisibleSongCount != 0) throw new Exception("empty search failed");
         picker.SetQuery(""); checks.Add("separate non-activating picker: Chinese, full pinyin, initials and empty search");
+        picker.CheckChrome();
+        nint pickerForeground = NonActivatingSearch.GetForegroundWindow();
+        picker.InvokeCloseForTest(); await Task.Delay(80);
+        if (mini.Picker is not null || NonActivatingSearch.GetForegroundWindow() != pickerForeground)
+            throw new Exception("picker custom close failed or stole foreground");
+        mini.OpenPicker(); await Task.Delay(150); picker = mini.Picker ?? throw new Exception("picker did not reopen");
+        picker.CheckChrome();
+        checks.Add("borderless song chooser drag/close regions, custom close preserves foreground and chooser reopens");
         var another = await backend.Call("save", new { name = "小窗切歌测试", bpm = 90, text = "5 3 1" });
         int otherId = another.GetProperty("id").GetInt32(); await RefreshLibrary();
         await picker.SelectSong(songs.First(s => s.Id == otherId));
@@ -659,7 +668,24 @@ public sealed partial class MainWindow : Window
         checks.Add("continuous global rate from mini synchronizes main, engine and persisted configuration");
         NonActivatingSearch.VerifyCapture();
         checks.Add("search hook suppresses typed key pairs, ignores injected playback and preserves foreground");
-        mini.Close(); await backend.Call("delete", new { id = otherId });
+        nint miniForeground = NonActivatingSearch.GetForegroundWindow();
+        mini.InvokeCloseForTest(); await Task.Delay(80);
+        if (mini is not null || NonActivatingSearch.GetForegroundWindow() != miniForeground)
+            throw new Exception("mini custom close failed or stole foreground");
+        ThemeBox.SelectedIndex = 1; await Task.Delay(100);
+        await ShowMini(); await Task.Delay(180);
+        if (mini is null || ((FrameworkElement)mini.Content).ActualTheme != ElementTheme.Light)
+            throw new Exception("mini light theme did not apply");
+        mini.CheckBounds(); mini.CheckChrome(); mini.OpenPicker(); await Task.Delay(150);
+        picker = mini.Picker ?? throw new Exception("light chooser did not open"); picker.CheckChrome();
+        if (((FrameworkElement)picker.Content).ActualTheme != ElementTheme.Light) throw new Exception("picker light theme did not apply");
+        await UiSnapshot.Save((FrameworkElement)mini.Content, Path.Combine(Path.GetDirectoryName(selfTestFile!)!, "mini-light-preview.png"));
+        picker.InvokeCloseForTest(); await Task.Delay(60);
+        mini.InvokeCloseForTest(); await Task.Delay(60);
+        if (mini is not null) throw new Exception("light mini custom close failed");
+        ThemeBox.SelectedIndex = 2;
+        checks.Add("custom mini close restores main window; compact borderless player and chooser work in light and dark themes");
+        await backend.Call("delete", new { id = otherId });
         await backend.Call("delete", new { id });
         File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, framework = "Microsoft.UI.Xaml / WinUI 3", version = typeof(MainWindow).Assembly.GetName().Version!.ToString(3), portable = DistributionMode.IsPortable, msix = DistributionMode.IsMsix, executable = Environment.ProcessPath, runtimeDirectory = AppContext.BaseDirectory }, new JsonSerializerOptions { WriteIndented = true }));
         Close();
