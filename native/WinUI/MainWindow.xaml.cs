@@ -545,13 +545,31 @@ public sealed partial class MainWindow : Window
     private async Task SelfTest()
     {
         var checks = new List<string>();
+        if (Environment.GetCommandLineArgs().Contains("--drag-self-test"))
+        {
+            foreach (int theme in new[] { 2, 1 })
+            {
+                ThemeBox.SelectedIndex = theme; await Task.Delay(120);
+                await ShowMini(); await Task.Delay(180);
+                if (mini is null) throw new Exception("mini drag probe did not open");
+                mini.CheckBounds(); mini.CheckChrome(); await WindowDragSelfTest.Verify(mini);
+                mini.OpenPicker(); await Task.Delay(160);
+                var dragPicker = mini.Picker ?? throw new Exception("picker drag probe did not open");
+                dragPicker.CheckChrome(); await WindowDragSelfTest.Verify(dragPicker);
+                dragPicker.InvokeCloseForTest(); await Task.Delay(60); mini.InvokeCloseForTest(); await Task.Delay(60);
+                if (mini is not null) throw new Exception("drag probe close failed");
+                checks.Add($"real OS mouse drag and foreground preservation for mini and picker, theme {theme}");
+            }
+            File.WriteAllText(selfTestFile!, JsonSerializer.Serialize(new { passed = true, checks, version = typeof(MainWindow).Assembly.GetName().Version!.ToString(3) }, new JsonSerializerOptions { WriteIndented = true }));
+            Close(); return;
+        }
         if (Environment.GetCommandLineArgs().Contains("--picker-self-test"))
         {
             await PickerSelfTest.Check(AppWindow.Id);
             checks.Add("administrator-compatible open/save/folder pickers render and cancel cleanly");
         }
         await CheckAdministratorControls(checks);
-        // Uses a recording driver and isolated data directory; creates no real keyboard/mouse input.
+        // Playback uses a recording driver and isolated data; the mouse probe targets only this app's own header.
         if (LibraryPage.ActualWidth < 600 || Root.ActualHeight < 500) throw new Exception("WinUI layout did not render");
         checks.Add("native WinUI window rendered");
         await Editor(null);
@@ -616,7 +634,9 @@ public sealed partial class MainWindow : Window
         checks.Add("mini rendered with WS_EX_NOACTIVATE and MA_NOACTIVATE");
         if (mini.ContentHeight > 200) throw new Exception("mini player is too large");
         mini.CheckBounds(); mini.CheckChrome();
-        checks.Add("borderless mini: no system caption or DWM border, native drag region excludes close button");
+        await WindowDragSelfTest.Verify(mini);
+        checks.Add("real mouse drag moves borderless mini by 48 x 24 physical pixels without changing foreground");
+        checks.Add("borderless mini: no system caption or DWM border, WinUI pointer header excludes close button");
         await UiSnapshot.Save((FrameworkElement)mini.Content, Path.Combine(Path.GetDirectoryName(selfTestFile!)!, "mini-preview.png"));
         checks.Add("compact player content fits within 200 logical pixels height");
         await mini.TogglePreview(); await Task.Delay(150);
@@ -641,6 +661,8 @@ public sealed partial class MainWindow : Window
         if (picker.VisibleSongCount != 0) throw new Exception("empty search failed");
         picker.SetQuery(""); checks.Add("separate non-activating picker: Chinese, full pinyin, initials and empty search");
         picker.CheckChrome();
+        await WindowDragSelfTest.Verify(picker);
+        checks.Add("real mouse drag moves song chooser by 48 x 24 physical pixels without changing foreground");
         nint pickerForeground = NonActivatingSearch.GetForegroundWindow();
         picker.InvokeCloseForTest(); await Task.Delay(80);
         if (mini.Picker is not null || NonActivatingSearch.GetForegroundWindow() != pickerForeground)
@@ -676,8 +698,8 @@ public sealed partial class MainWindow : Window
         await ShowMini(); await Task.Delay(180);
         if (mini is null || ((FrameworkElement)mini.Content).ActualTheme != ElementTheme.Light)
             throw new Exception("mini light theme did not apply");
-        mini.CheckBounds(); mini.CheckChrome(); mini.OpenPicker(); await Task.Delay(150);
-        picker = mini.Picker ?? throw new Exception("light chooser did not open"); picker.CheckChrome();
+        mini.CheckBounds(); mini.CheckChrome(); await WindowDragSelfTest.Verify(mini); mini.OpenPicker(); await Task.Delay(150);
+        picker = mini.Picker ?? throw new Exception("light chooser did not open"); picker.CheckChrome(); await WindowDragSelfTest.Verify(picker);
         if (((FrameworkElement)picker.Content).ActualTheme != ElementTheme.Light) throw new Exception("picker light theme did not apply");
         await UiSnapshot.Save((FrameworkElement)mini.Content, Path.Combine(Path.GetDirectoryName(selfTestFile!)!, "mini-light-preview.png"));
         picker.InvokeCloseForTest(); await Task.Delay(60);

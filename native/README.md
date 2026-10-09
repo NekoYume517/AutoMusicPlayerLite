@@ -15,7 +15,7 @@ Software updates use only this repository's `/releases/latest` stable release. R
 dotnet run --project native/tests/UpdateTests --configuration Release
 ```
 
-Data is stored in `%LOCALAPPDATA%\AutoMusicPlayerLitePublic`. Initial installations contain no scores. SQLite schema version 3 stores multi-group memberships, favorites, content update timestamps and per-score settings. Migration backs up existing databases first. Uninstall preserves data. Mini player and picker use `WS_EX_NOACTIVATE` / `MA_NOACTIVATE`; search temporarily captures physical keys and ignores injected playback events. Input output uses Win32 SendInput; native tests use a recording driver without real OS input.
+Data is stored in `%LOCALAPPDATA%\AutoMusicPlayerLitePublic`. Initial installations contain no scores. SQLite schema version 3 stores multi-group memberships, favorites, content update timestamps and per-score settings. Migration backs up existing databases first. Uninstall preserves data. Mini player and picker use `WS_EX_NOACTIVATE` / `MA_NOACTIVATE`; search temporarily captures physical keys and ignores injected playback events. Input output uses Win32 SendInput; playback tests use a recording driver. Header drag checks send mouse input only to the application's own mini player and chooser, verify real coordinate changes and foreground preservation, then restore the cursor. Run them when not moving or pressing the mouse.
 
 Licenses and editable pynput source are assembled by `prepare_release.py`. Installer is unsigned unless signing infrastructure is supplied. The frontend uses administrator-compatible Microsoft.Windows.Storage.Pickers.
 
@@ -35,3 +35,7 @@ renamed, including browser download suffixes. MSIX packaging merges the WinUI
 resources into resources.pri using the package identity and registers the
 bundled WinRT classes. Keep the app-local Python, .NET and VC runtimes together;
 all three distribution formats retain the same local data directory.
+
+### Small-window dragging checks
+
+`AutoMusicPlayerLite.exe --self-test REPORT --data-dir TESTDIR --drag-self-test` checks actual OS mouse delivery to both small windows in light and dark themes. It verifies a 48 by 24 pixel move, stops on release and preserves foreground focus. The probe briefly moves the cursor, guards against outside input and restores its position. Playback uses the recording driver.

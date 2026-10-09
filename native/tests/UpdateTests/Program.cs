@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 
 int checks = 0;
-var current = new Version(2, 2, 5);
+var current = new Version(2, 2, 6);
 void Assert(bool value) { if (!value) throw new Exception("Update check failed at " + checks); checks++; }
 JsonElement Fixture(string version = "2.3.0", bool prerelease = false, string? digest = null, string? url = null, long size = 3) => JsonSerializer.SerializeToElement(new {
     draft = false, prerelease, tag_name = "v" + version, body = "Release notes",
@@ -65,7 +65,7 @@ try {
 } finally { if (Directory.Exists(directory)) Directory.Delete(directory,true); }
 var assemblyVersion = typeof(ReleaseUpdate).Assembly.GetName().Version!;
 Assert(ReleaseUpdate.Current == new Version(assemblyVersion.Major, assemblyVersion.Minor, assemblyVersion.Build));
-Assert(ReleaseUpdate.Parse(Fixture("2.2.5"), current) is null);
+Assert(ReleaseUpdate.Parse(Fixture("2.2.6"), current) is null);
 Console.WriteLine(JsonSerializer.Serialize(new {passed=true,count=checks}));
 class PayloadHandler(byte[] bytes) : HttpMessageHandler {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {

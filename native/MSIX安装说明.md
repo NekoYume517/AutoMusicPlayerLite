@@ -17,7 +17,7 @@ Import-Certificate -FilePath '.\AutoMusicPlayerLite-MSIX.cer' -CertStoreLocation
 然后用普通 PowerShell 安装对应的 MSIX：
 
 ```powershell
-Add-AppxPackage -Path '.\AutoMusicPlayerLite-2.2.5-x64.msix'
+Add-AppxPackage -Path '.\AutoMusicPlayerLite-2.2.6-x64.msix'
 ```
 
 自用版请选择文件名带 `Private` 的 MSIX。自用版与开源版相互独立；同一版本类型的三种分发方式共用本地曲库与设置。软件更新会选择相同分发方式：MSIX 更新 MSIX，安装 EXE 更新安装 EXE，绿色 EXE 替换当前绿色文件。

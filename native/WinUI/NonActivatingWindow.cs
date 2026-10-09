@@ -15,6 +15,10 @@ public abstract class NonActivatingWindow : Window
     private SubclassProc? subclass;
     private FrameworkElement? dragRegion;
     private Button? closeButton;
+    private readonly DispatcherTimer dragTimer = new() { Interval = TimeSpan.FromMilliseconds(10) };
+    private bool dragging;
+    private double grabX, grabY;
+    private nint dragForeground;
     [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X, Y; }
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
     public nint Hwnd => WindowNative.GetWindowHandle(this);
@@ -22,8 +26,9 @@ public abstract class NonActivatingWindow : Window
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern nint SetWindowLongPtr(nint hwnd, int index, nint value);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint hwnd);
     [DllImport("user32.dll")] private static extern nint SendMessageW(nint hwnd, uint msg, nuint wp, nint lp);
-    [DllImport("user32.dll")] private static extern bool ScreenToClient(nint hwnd, ref NativePoint point);
     [DllImport("user32.dll")] private static extern bool ClientToScreen(nint hwnd, ref NativePoint point);
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out NativePoint point);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(nint hwnd, out NativeRect rect);
     [DllImport("user32.dll")] private static extern bool GetClientRect(nint hwnd, out NativeRect rect);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int width, int height, uint flags);
@@ -46,6 +51,20 @@ public abstract class NonActivatingWindow : Window
         if (subtitle is not null) caption.Children.Add(new TextBlock { Text = subtitle, FontSize = 12, Opacity = .65 });
         var drag = new Grid { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         drag.Children.Add(caption); header.Children.Add(drag); dragRegion = drag;
+        drag.PointerPressed += (_, e) =>
+        {
+            var point = e.GetCurrentPoint((UIElement)Content);
+            if (point.PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Mouse || !point.Properties.IsLeftButtonPressed) return;
+            grabX = point.Position.X; grabY = point.Position.Y;
+            dragForeground = NonActivatingSearch.GetForegroundWindow(); dragging = true;
+            dragTimer.Start(); e.Handled = true;
+        };
+        drag.PointerMoved += (_, _) => MoveDrag();
+        drag.PointerReleased += (_, e) => { if (!e.GetCurrentPoint(drag).Properties.IsLeftButtonPressed) StopDrag(); };
+        // Background windows cannot reliably retain mouse capture outside their bounds.
+        // Read the cursor only during a header drag, so fast movements keep following it
+        // without activating the window or interfering with the game's keyboard shortcuts.
+        dragTimer.Tick += (_, _) => MoveDrag();
         ToolTipService.SetToolTip(drag, "拖动移动窗口");
         closeButton = new Button { Content = new FontIcon { Glyph = "\uE8BB", FontSize = 10 }, Width = 26, Height = 26,
             MinWidth = 26, MinHeight = 26, Padding = new Thickness(0), CornerRadius = new CornerRadius(6),
@@ -83,28 +102,26 @@ public abstract class NonActivatingWindow : Window
         if (owner is not null) SetWindowLongPtr(Hwnd, -8, owner.Hwnd);
         subclass = (hwnd, msg, wp, lp, id, reference) =>
         {
-            if (msg == 0x21) return 3; // MA_NOACTIVATE, including clicks on the drag region.
-            if (msg == 0x84 && IsDragPoint(lp)) return 2; // HTCAPTION uses native window dragging.
+            if (msg == 0x21) return 3; // MA_NOACTIVATE; WinUI receives header pointer input as client input.
             return DefSubclassProc(hwnd, msg, wp, lp);
         };
         if (!SetWindowSubclass(Hwnd, subclass, 1, 0)) throw new InvalidOperationException("未能设置窗口焦点保护");
-        Closed += (_, _) => RemoveWindowSubclass(Hwnd, subclass, 1);
+        Closed += (_, _) => { StopDrag(); RemoveWindowSubclass(Hwnd, subclass, 1); };
     }
 
-    private bool IsDragPoint(nint coordinates)
+    private void StopDrag() { dragging = false; dragTimer.Stop(); }
+
+    private void MoveDrag()
     {
-        if (dragRegion is null || dragRegion.ActualWidth <= 0 || Content is not FrameworkElement root) return false;
-        // WM_NCHITTEST packs signed screen coordinates; monitors can be left of the primary screen.
-        var point = new NativePoint { X = unchecked((short)coordinates.ToInt64()), Y = unchecked((short)(coordinates.ToInt64() >> 16)) };
-        if (!ScreenToClient(Hwnd, ref point)) return false;
-        try
+        if (!dragging) return;
+        if ((GetAsyncKeyState(1) & 0x8000) == 0 || NonActivatingSearch.GetForegroundWindow() != dragForeground || !GetCursorPos(out var point))
         {
-            var origin = dragRegion.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
-            double scale = root.XamlRoot?.RasterizationScale ?? Math.Max(96, GetDpiForWindow(Hwnd)) / 96.0;
-            double x = point.X / scale, y = point.Y / scale;
-            return x >= origin.X && x < origin.X + dragRegion.ActualWidth && y >= origin.Y && y < origin.Y + dragRegion.ActualHeight;
+            StopDrag(); return;
         }
-        catch (COMException) { return false; } // The XAML tree may be attaching or closing.
+        double scale = Math.Max(96, GetDpiForWindow(Hwnd)) / 96.0;
+        int x = point.X - (int)Math.Round(grabX * scale), y = point.Y - (int)Math.Round(grabY * scale);
+        if (!GetWindowRect(Hwnd, out var current) || current.Left == x && current.Top == y) return;
+        if (!SetWindowPos(Hwnd, 0, x, y, 0, 0, 0x15)) StopDrag(); // NOSIZE | NOZORDER | NOACTIVATE.
     }
 
     internal void CheckChrome()
@@ -115,8 +132,12 @@ public abstract class NonActivatingWindow : Window
             throw new Exception("mini non-client frame still occupies space");
         if (DwmGetWindowAttribute(Hwnd, 34, out uint border, sizeof(uint)) >= 0 && border != 0xFFFFFFFE)
             throw new Exception("mini DWM border was not suppressed");
-        if (dragRegion is null || closeButton is null || HitTestCenter(dragRegion) != 2 || HitTestCenter(closeButton) != 1)
-            throw new Exception("mini drag and close hit regions overlap or are missing");
+        if (dragRegion is null || closeButton is null || dragRegion.ActualWidth <= 0 || HitTestCenter(dragRegion) != 1 || HitTestCenter(closeButton) != 1)
+            throw new Exception("mini header must deliver client pointer input to WinUI");
+        var root = (FrameworkElement)Content;
+        var dragOrigin = dragRegion.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
+        var closeOrigin = closeButton.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
+        if (dragOrigin.X + dragRegion.ActualWidth > closeOrigin.X) throw new Exception("mini close button overlaps the drag region");
         if (!DoesNotActivate) throw new Exception("borderless window lost focus protection");
     }
 
@@ -129,6 +150,17 @@ public abstract class NonActivatingWindow : Window
         if (!ClientToScreen(Hwnd, ref point)) throw new Exception("window coordinates unavailable");
         nint packed = (nint)(unchecked((ushort)point.X) | unchecked((ushort)point.Y) << 16);
         return SendMessageW(Hwnd, 0x84, 0, packed);
+    }
+
+    internal Windows.Graphics.PointInt32 DragCenterForTest()
+    {
+        var root = (FrameworkElement)Content;
+        var element = dragRegion ?? throw new Exception("Drag region missing");
+        var origin = element.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
+        double scale = root.XamlRoot.RasterizationScale;
+        var point = new NativePoint { X = (int)((origin.X + element.ActualWidth / 2) * scale), Y = (int)((origin.Y + element.ActualHeight / 2) * scale) };
+        if (!ClientToScreen(Hwnd, ref point)) throw new Exception("Drag region coordinates missing");
+        return new Windows.Graphics.PointInt32(point.X, point.Y);
     }
 
     internal void InvokeCloseForTest()
